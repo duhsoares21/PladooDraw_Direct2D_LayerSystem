@@ -3,3 +3,6 @@ Debug/
 Release/
 x64/
 .git/
+PladooDraw_Direct2D_LayerSystem/framework.h
+PladooDraw_Direct2D_LayerSystem/pch.h
+PladooDraw_Direct2D_LayerSystem/pch.cpp
