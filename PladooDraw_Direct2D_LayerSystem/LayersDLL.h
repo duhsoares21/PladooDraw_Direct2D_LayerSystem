@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <d2d1.h>
 
+void InitFloodInterop(int width, int height);
 D2D1_COLOR_F GetRGBColor(COLORREF color);
 ID2D1SolidColorBrush* D2_CreateSolidBrush(COLORREF hexColor);
 template <class T> void SafeRelease(T** ppT);
@@ -25,5 +26,5 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
 extern "C" __declspec(dllexport) void RectangleTool(int left, int top, int right, int bottom, unsigned int hexColor);
 extern "C" __declspec(dllexport) void EllipseTool(int left, int top, int right, int bottom, unsigned int hexColor);
 extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor, int brushSize);
-extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd);
+extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd, float tolerance);
 extern "C" __declspec(dllexport) void Cleanup();

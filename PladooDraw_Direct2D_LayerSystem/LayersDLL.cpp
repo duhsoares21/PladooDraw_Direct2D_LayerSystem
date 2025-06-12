@@ -3,23 +3,37 @@
 #include "LayersDLL.h"
 
 #include <algorithm>
+#include <chrono>
+#include <CL/cl.h>
 #include <cmath>
 #include <codecvt>
 #include <corecrt_math_defines.h>
 #include <cstdio>
 #include <d2d1_1.h>
+#include <dxgi1_2.h>
 #include <fstream>
+#include <functional>
+#include <iostream>
+#include <map>
 #include <numbers>
 #include <queue>
+#include <random>
 #include <set>
 #include <sstream>
 #include <stack>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <wincodec.h>
 #include <windows.h>
 #include <wrl/client.h>
+
+#include <d3dcompiler.h> // Para D3DCompileFromFile
+
+#pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "d2d1.lib")
 
 using namespace Microsoft::WRL;
 using namespace std;
@@ -33,6 +47,21 @@ struct EDGE {
 	std::vector<VERTICE> vertices;
 };
 
+struct LINE {
+    D2D1_POINT_2F startPoint;
+    D2D1_POINT_2F endPoint;
+};
+
+struct LineData {
+    bool isClosed;
+    int index;
+};
+
+struct LineGeometry {
+    std::vector<D2D1_POINT_2F> closedLoop;
+    COLORREF fillColor;
+};
+
 struct ACTION {
     int Tool;
     int Layer;
@@ -41,10 +70,13 @@ struct ACTION {
     D2D1_ELLIPSE Ellipse;
     COLORREF FillColor;
     COLORREF Color;
-    D2D1_POINT_2F startPoint;
-    D2D1_POINT_2F endPoint;
+	LINE Line;
     int BrushSize;
+    std::vector<std::pair<int, int>> pixelsToFill;
     bool IsFilled;
+    int mouseX;
+    int mouseY;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> undoBitmap;
 };
 
 struct PIXEL {
@@ -56,14 +88,25 @@ struct PIXEL {
     }
 };
 
+namespace std {
+    template <>
+    struct hash<PIXEL> {
+        size_t operator()(const PIXEL& p) const {
+            return std::hash<int>()(p.x) ^ (std::hash<int>()(p.y) << 1);
+        }
+    };
+}
+
 struct Layer {
     ID2D1BitmapRenderTarget* pBitmapRenderTarget;
-    ID2D1Bitmap* pBitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> pBitmap;
+    HBITMAP hBitmap;
 };
 
 struct LayerOrder {
     int layerOrder;
     int layerIndex;
+    std::vector<D2D1_COLOR_F> indexedColors;
 };
 
 struct LayerButton {
@@ -71,6 +114,20 @@ struct LayerButton {
     HBITMAP hBitmap;
     bool isInitialPainted;
 };
+
+const int DX[] = { -1, 1, 0, 0 };
+const int DY[] = { 0, 0, -1, 1 };
+
+struct PairHash {
+    template <typename T1, typename T2>
+    std::size_t operator()(const std::pair<T1, T2>& p) const {
+        auto h1 = std::hash<T1>{}(p.first);  
+        auto h2 = std::hash<T2>{}(p.second); 
+        return h1 ^ (h2 << 1);               
+    }
+};
+
+std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
 enum Tools
 {
@@ -85,8 +142,7 @@ enum Tools
 HWND mainHWND = NULL;
 HWND layersHWND = NULL;
 
-IWICImagingFactory* pWICFactory = nullptr;
-ID2D1Factory* pD2DFactory = nullptr;
+Microsoft::WRL::ComPtr<ID2D1Factory1> pD2DFactory;
 ID2D1HwndRenderTarget* pRenderTarget = nullptr;
 ID2D1HwndRenderTarget* pLayerRenderTarget = nullptr;
 ID2D1SolidColorBrush* pBrush = nullptr;
@@ -112,13 +168,16 @@ static bool isDrawingRectange = false;
 static bool isDrawingEllipse = false;
 static bool isDrawingBrush = false;
 static bool isDrawingLine = false;
-static bool isFloodFill = false;
+static bool isPaintBucket = false;
 
 std::vector<LayerOrder> layersOrder;
 std::vector<Layer> layers;
 std::vector<ACTION> Actions;
 std::vector<ACTION> RedoActions;
 std::vector<VERTICE> Vertices;
+std::vector<std::pair<int, int>> pixelsToFill;
+
+int width, height;
 
 std::vector<LayerButton> LayerButtons;
 
@@ -128,6 +187,7 @@ int layerIndex = 0;
 unsigned int lastHexColor = UINT_MAX;
 
 /* MAIN */
+
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     switch (fdwReason) {
         case DLL_PROCESS_ATTACH: 
@@ -147,11 +207,17 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
 }
 
 extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
-    Actions.reserve(10000);
-
+   
+    Actions.resize(10000);
     mainHWND = hWnd;
 
-    HRESULT factoryResult = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &pD2DFactory);
+    D2D1_FACTORY_OPTIONS options = { D2D1_DEBUG_LEVEL_INFORMATION }; // Habilitar depuração
+    HRESULT factoryResult = D2D1CreateFactory(
+        D2D1_FACTORY_TYPE_MULTI_THREADED,
+        __uuidof(ID2D1Factory1),
+        &options,
+        reinterpret_cast<void**>(pD2DFactory.GetAddressOf())
+    );
 
     if (FAILED(factoryResult)) {
         MessageBox(hWnd, L"Erro ao criar Factory", L"Erro", MB_OK);
@@ -161,6 +227,9 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
 
     RECT rc;
     GetClientRect(hWnd, &rc);
+
+    width = rc.right - rc.left;
+    height = rc.bottom - rc.top;
 
     D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
 
@@ -177,7 +246,27 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
 
     if (FAILED(renderResult))
     {
-        MessageBox(hWnd, L"Erro ao criar hWndRenderTarget", L"Erro", MB_OK);
+        // Buffer to store the error message
+        wchar_t errorMessage[512];
+
+        // Format the HRESULT error code as a message
+        FormatMessage(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr,
+            renderResult,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            errorMessage,
+            (sizeof(errorMessage) / sizeof(wchar_t)),
+            nullptr
+        );
+
+        // Create a formatted message with the HRESULT code and description
+        wchar_t finalMessage[1024];
+        swprintf_s(finalMessage, L"Erro ao criar hWndRenderTarget\nCódigo: 0x%08X\nMensagem: %s", renderResult, errorMessage);
+
+        // Show the message box with error details
+        MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
+
         return renderResult;
     }
        
@@ -195,6 +284,7 @@ extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd) {
 
     return S_OK;
 }
+
 /* HELPERS */
 
 void CreateLogData(std::string fileName, std::string content) {
@@ -260,6 +350,252 @@ RECT scalePointsToButton(int x, int y, int drawingAreaWidth, int drawingAreaHeig
     return rect;
 }
 
+bool toolExists(const std::vector<ACTION>& Actions, const Tools& targetTool) {
+    return std::any_of(Actions.begin(), Actions.end(), [&](const ACTION& action) {
+        return action.Tool == targetTool;
+        });
+}
+
+std::vector<ACTION> getActionsWithTool(const std::vector<ACTION>& actions, Tools tool) {
+    std::vector<ACTION> result;
+
+    for (const auto& action : actions) {
+        if (action.Tool == tool) {
+            result.push_back(action);
+        }
+    }
+
+    return result;
+}
+
+COLORREF GetColorAtPixel(int mouseX, int mouseY) {
+    HDC hdc = GetDC(mainHWND);
+
+    return GetPixel(hdc, mouseX, mouseY);
+}   
+
+COLORREF GetPixelColor(int x, int y, COLORREF defaultColor = RGB(255, 255, 255)) {
+    auto it = bitmapData.find(std::make_pair(x, y));
+    if (it != bitmapData.end()) {
+        return it->second; // Return the color if found
+    }
+    return defaultColor; // Return default color if not found
+}
+
+int findLayerIndex(const std::vector<LayerOrder>& layersOrder, int searchLayerIndex) {
+    auto it = std::find_if(layersOrder.begin(), layersOrder.end(),
+        [searchLayerIndex](const LayerOrder& layer) {
+            return layer.layerIndex == searchLayerIndex;
+        });
+
+    // If found, return the index
+    if (it != layersOrder.end()) {
+        return std::distance(layersOrder.begin(), it);
+    }
+
+    // Return -1 if not found
+    return -1;
+}
+
+bool isSameColor(const D2D1_COLOR_F& a, const D2D1_COLOR_F& b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+// Function to find indices of a specific color in indexedColors
+std::vector<size_t> findColorIndices(const std::vector<D2D1_COLOR_F>& indexedColors, const D2D1_COLOR_F& searchColor) {
+    std::vector<size_t> indices;
+
+    for (size_t i = 0; i < indexedColors.size(); ++i) {
+        if (isSameColor(indexedColors[i], searchColor)) {
+            indices.push_back(i); // Store the index of matching color
+        }
+    }
+
+    return indices;
+}
+
+void FillRectangleColors(const D2D1_RECT_F& rect, std::vector<D2D1_COLOR_F>& indexedColors, D2D1_COLOR_F color)
+{
+    // Convert rect coordinates to integer indices
+    int left = static_cast<int>(rect.left);
+    int top = static_cast<int>(rect.top);
+    int right = static_cast<int>(rect.right);
+    int bottom = static_cast<int>(rect.bottom);
+
+    // Ensure boundaries don't exceed document size
+    left = (std::max)(0, left);
+    top = (std::max)(0, top);
+    right = (std::min)(width, right);
+    bottom = (std::min)(height, bottom);
+
+    // Fill the rectangle area in indexedColors
+    for (int y = top; y < bottom; ++y) {
+        for (int x = left; x < right; ++x) {
+            int index = y * width + x; // Convert (x, y) to linear index
+            indexedColors[index] = color; // Directly replace color at index
+        }
+    }
+}
+
+/* ACTIONS */
+
+extern "C" __declspec(dllexport) void handleMouseUp() {
+
+    if (isDrawingRectange || isDrawingEllipse || isDrawingLine) {
+        ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(currentColor);
+
+        layers[layerIndex].pBitmapRenderTarget->BeginDraw();              
+
+        if (isDrawingRectange) {
+            layers[layerIndex].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rectangle, brush);
+            layers[layerIndex].pBitmapRenderTarget->PopAxisAlignedClip();
+
+            ACTION action;
+            action.Tool = TRectangle;
+            action.Layer = layerIndex;
+            action.Position = rectangle;
+            action.Color = currentColor;
+            Actions.push_back(action);
+
+            //FillRectangleColors(rectangle, layersOrder[findLayerIndex(layersOrder, layerIndex)].indexedColors, GetRGBColor(currentColor));
+
+            rectangle = D2D1::RectF(0, 0, 0, 0);
+            isDrawingRectange = false;
+        }
+        
+        if (isDrawingEllipse) {
+            layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush);
+
+            ACTION action;
+            action.Tool = TEllipse;
+            action.Layer = layerIndex;
+            action.Position = rectangle;
+            action.Ellipse = ellipse;
+            action.Color = currentColor;
+            Actions.push_back(action);
+
+            ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
+            isDrawingEllipse = false;
+        }
+
+        if (isDrawingLine) {
+            layers[layerIndex].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush, currentBrushSize, nullptr);
+
+            ACTION action;
+            action.Tool = TLine;
+            action.Layer = layerIndex;
+            action.Line = { startPoint, endPoint };
+            action.Color = currentColor;
+            action.BrushSize = currentBrushSize;
+            Actions.push_back(action);
+
+            isDrawingLine = false;
+        }
+   
+        layers[layerIndex].pBitmapRenderTarget->EndDraw();
+
+        layersOrder.pop_back();
+        layers.pop_back();
+    }
+   
+	if (isDrawingBrush) {
+
+        ACTION action;
+        action.Tool = TBrush;
+        action.Layer = layerIndex;
+        action.Color = currentColor;
+        action.BrushSize = currentBrushSize;
+		action.FillColor = RGB(255, 255, 255);
+		action.FreeForm.vertices = Vertices;
+        action.IsFilled = false;
+        Actions.push_back(action);
+
+        /*int layerOrderIndex = findLayerIndex(layersOrder, layerIndex);
+        D2D1_COLOR_F paintColor = GetRGBColor(currentColor);
+
+        for (int i = 0; i < Vertices.size(); i++) {
+            //std::cout << i << std::endl;
+            layersOrder[layerOrderIndex].indexedColors[Vertices[i].y * width + Vertices[i].x] = paintColor;
+        }*/
+
+		Vertices.clear();
+
+		isDrawingBrush = false;
+	}
+
+    if (isPaintBucket) {
+
+        if (getActionsWithTool(Actions, TPaintBucket).size() == 0) {
+            ACTION action;
+            action.Tool = TPaintBucket;
+            action.Layer = layerIndex;
+            Actions.push_back(action);
+        }
+
+        isPaintBucket = false;
+    }
+
+    startPoint = D2D1::Point2F(0, 0);
+    endPoint = D2D1::Point2F(0, 0);
+ 
+    bitmapRect = D2D1::RectF(0, 0, 0, 0);
+    prevRectangle = D2D1::RectF(0, 0, 0, 0);
+    prevEllipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
+    prevLeft = -1;
+    prevTop = -1;
+
+    DrawLayerPreview(layerIndex);
+}
+
+/*extern "C" __declspec(dllexport) void Undo() {
+    if (Actions.size() > 0) {
+        RedoActions.push_back(Actions[Actions.size() - 1]);
+        Actions.pop_back();
+    }
+}*/
+
+extern "C" __declspec(dllexport) void Undo() {
+    if (Actions.size() > 0) {
+        ACTION lastAction = Actions.back();
+        RedoActions.push_back(lastAction);
+        Actions.pop_back();
+        if (lastAction.Tool == TPaintBucket) {
+            layers[lastAction.Layer].pBitmapRenderTarget->BeginDraw();
+            layers[lastAction.Layer].pBitmapRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+            if (lastAction.undoBitmap) {
+                layers[lastAction.Layer].pBitmapRenderTarget->DrawBitmap(lastAction.undoBitmap.Get());
+            }
+            layers[lastAction.Layer].pBitmapRenderTarget->EndDraw();
+            layers[lastAction.Layer].pBitmapRenderTarget->GetBitmap(&layers[lastAction.Layer].pBitmap);
+        }
+        RenderLayers();
+        DrawLayerPreview(layerIndex);
+    }
+}
+
+/*extern "C" __declspec(dllexport) void Redo() {
+    if (RedoActions.size() > 0) {
+        Actions.push_back(RedoActions[RedoActions.size() - 1]);
+        RedoActions.pop_back();
+    }
+}*/
+
+extern "C" __declspec(dllexport) void Redo() {
+    if (RedoActions.size() > 0) {
+        ACTION action = RedoActions.back();
+        Actions.push_back(action);
+        RedoActions.pop_back();
+        if (action.Tool == TPaintBucket) {
+            PaintBucketTool(action.mouseX, action.mouseY, action.FillColor, mainHWND, 0.01f);
+        }
+        RenderLayers();
+        DrawLayerPreview(layerIndex);
+    }
+}
+
+/* LAYERS */
+
 extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton) {
 
     RECT rc;
@@ -283,121 +619,10 @@ extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton) {
     ReleaseDC(layerButton, hdc);
 }
 
-/* ACTIONS */
-
-extern "C" __declspec(dllexport) void handleMouseUp() {
-
-    if (isDrawingRectange || isDrawingEllipse || isDrawingLine) {
-        ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(currentColor);
-
-        layers[layerIndex].pBitmapRenderTarget->BeginDraw();              
-
-        if (isDrawingRectange) {
-            layers[layerIndex].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rectangle, brush);
-            layers[layerIndex].pBitmapRenderTarget->PopAxisAlignedClip();
-
-            ACTION action;
-            action.Tool = 2;
-            action.Layer = layerIndex;
-            action.Position = rectangle;
-            action.Color = currentColor;
-            Actions.push_back(action);
-
-            rectangle = D2D1::RectF(0, 0, 0, 0);
-            isDrawingRectange = false;
-        }
-        
-        if (isDrawingEllipse) {
-            layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush);
-
-            ACTION action;
-            action.Tool = 3;
-            action.Layer = layerIndex;
-            action.Position = rectangle;
-            action.Ellipse = ellipse;
-            action.Color = currentColor;
-            Actions.push_back(action);
-
-            ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
-            isDrawingEllipse = false;
-        }
-
-        if (isDrawingLine) {
-            layers[layerIndex].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush, currentBrushSize, nullptr);
-
-            ACTION action;
-            action.Tool = 4;
-            action.Layer = layerIndex;
-            action.startPoint = startPoint;
-            action.endPoint = endPoint;
-            action.Color = currentColor;
-            action.BrushSize = currentBrushSize;
-            Actions.push_back(action);
-
-            isDrawingLine = false;
-        }
-    
-        layers[layerIndex].pBitmapRenderTarget->EndDraw();
-
-        layersOrder.pop_back();
-        layers.pop_back();
-    }
-   
-	if (isDrawingBrush) {
-
-        ACTION action;
-        action.Tool = TBrush;
-        action.Layer = layerIndex;
-        action.Color = currentColor;
-        action.BrushSize = currentBrushSize;
-		action.FillColor = RGB(255, 255, 255);
-		action.FreeForm.vertices = Vertices;
-        action.IsFilled = false;
-        Actions.push_back(action);
-
-		Vertices.clear();
-
-		isDrawingBrush = false;
-	}
-
-    startPoint = D2D1::Point2F(0, 0);
-    endPoint = D2D1::Point2F(0, 0);
- 
-    bitmapRect = D2D1::RectF(0, 0, 0, 0);
-    prevRectangle = D2D1::RectF(0, 0, 0, 0);
-    prevEllipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
-    prevLeft = -1;
-    prevTop = -1;
-}
-
-extern "C" __declspec(dllexport) void Undo() {
-    if (Actions.size() > 0) {
-        RedoActions.push_back(Actions[Actions.size() - 1]);
-        Actions.pop_back();
-    }
-}
-
-extern "C" __declspec(dllexport) void Redo() {
-    if (RedoActions.size() > 0) {
-        Actions.push_back(RedoActions[RedoActions.size() - 1]);
-        RedoActions.pop_back();
-    }
-}
-
-/* LAYERS */
-
 extern "C" __declspec(dllexport) HRESULT AddLayer() {
     ID2D1BitmapRenderTarget* pBitmapRenderTarget = nullptr;
 
     D2D1_SIZE_F size = pRenderTarget->GetSize();
-
-    D2D1_PIXEL_FORMAT pixelFormat = D2D1::PixelFormat(
-        DXGI_FORMAT_B8G8R8A8_UNORM,
-        D2D1_ALPHA_MODE_PREMULTIPLIED
-    );
-
-    D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(pixelFormat);
 
     HRESULT renderTargetCreated = pRenderTarget->CreateCompatibleRenderTarget(
         D2D1::SizeF(size.width, size.height), &pBitmapRenderTarget);
@@ -407,18 +632,17 @@ extern "C" __declspec(dllexport) HRESULT AddLayer() {
         return renderTargetCreated;
     }
 
-    ID2D1Bitmap* pBitmap = nullptr;
-
-    renderTargetCreated = pBitmapRenderTarget->CreateBitmap(
-        D2D1::SizeU(static_cast<UINT32>(size.width), static_cast<UINT32>(size.height)),
-        nullptr, 0, properties, &pBitmap);
-
+    ComPtr<ID2D1Bitmap> pBitmap;
     pBitmapRenderTarget->GetBitmap(&pBitmap);
+
+    std::vector<D2D1_COLOR_F> indexedColors;
+    D2D1_COLOR_F defaultColor = D2D1::ColorF(255, 255, 255, 0);
+    indexedColors.resize(width * height, defaultColor);
 
     Layer layer = { pBitmapRenderTarget, pBitmap };
     layers.push_back(layer);
 
-    LayerOrder layerOrder = { layers.size() - 1, layers.size() - 1 };
+    LayerOrder layerOrder = { static_cast<int>(layers.size()) - 1, static_cast<int>(layers.size()) - 1, indexedColors };
     layersOrder.push_back(layerOrder);
 
     return S_OK;
@@ -465,141 +689,6 @@ extern "C" __declspec(dllexport) int LayersCount() {
     return layers.size();
 }
 
-float CrossProduct(const VERTICE& p1, const VERTICE& p2, const VERTICE& p3) {
-    return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
-}
-
-bool DoLineSegmentsIntersect(const VERTICE& A, const VERTICE& B, const VERTICE& C, const VERTICE& D) {
-    float d1 = CrossProduct(C, D, A);
-    float d2 = CrossProduct(C, D, B);
-    float d3 = CrossProduct(A, B, C);
-    float d4 = CrossProduct(A, B, D);
-
-    return (d1 * d2 < 0) && (d3 * d4 < 0);
-}
-
-bool IsSelfIntersecting(const EDGE& edge) {
-    size_t n = edge.vertices.size();
-
-    for (size_t i = 0; i < n - 1; i++) {
-        for (size_t j = i + 2; j < n - 1; j++) {
-            if (DoLineSegmentsIntersect(edge.vertices[i], edge.vertices[i + 1], edge.vertices[j], edge.vertices[j + 1])) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool IsPointInsidePolygon(const EDGE& edge, const VERTICE& point) {
-    size_t n = edge.vertices.size();
-    bool isInside = false;
-
-    for (size_t i = 0, j = n - 1; i < n; j = i++) {
-        const VERTICE& vi = edge.vertices[i];
-        const VERTICE& vj = edge.vertices[j];
-
-        if (((vi.y > point.y) != (vj.y > point.y)) && // Check if point is between y-coordinates of the edge
-            (point.x < (vj.x - vi.x) * (point.y - vi.y) / (vj.y - vi.y) + vi.x)) { // Calculate intersection
-            isInside = !isInside;
-        }
-    }
-
-    return isInside;
-}
-
-bool IsPointInsideRectF(const D2D1_RECT_F& rect, const VERTICE& point) {
-    return (point.x >= rect.left && point.x <= rect.right &&
-        point.y >= rect.top && point.y <= rect.bottom);
-}
-
-bool IsPointInsideEllipse(const D2D1_ELLIPSE& ellipse, const VERTICE& point) {
-    float dx = point.x - ellipse.point.x;
-    float dy = point.y - ellipse.point.y;
-
-    return (dx * dx) / (ellipse.radiusX * ellipse.radiusX) +
-        (dy * dy) / (ellipse.radiusY * ellipse.radiusY) <= 1.0f;
-}
-
-bool IsProximityClose(EDGE edge, float closureThreshold) {
-    bool isProximityClosed = (std::hypot(
-        edge.vertices[0].x - edge.vertices.back().x,
-        edge.vertices[0].y - edge.vertices.back().y) <= closureThreshold);
-
-    float area = 0.0f;
-    size_t n = edge.vertices.size();
-
-    for (size_t j = 0; j < n; ++j) {
-        size_t k = (j + 1) % n; // Next vertex, wrapping around at the end
-        area += edge.vertices[j].x * edge.vertices[k].y;
-        area -= edge.vertices[k].x * edge.vertices[j].y;
-    }
-
-    return isProximityClosed && (std::abs(area) / 2.0f > 0.0f);
-}
-
-float CalculateAngle(const VERTICE& p1, const VERTICE& p2, const VERTICE& reference) {
-    float dx1 = p1.x - reference.x;
-    float dy1 = p1.y - reference.y;
-    float dx2 = p2.x - reference.x;
-    float dy2 = p2.y - reference.y;
-
-    // atan2 calculates the angle in radians (-π to π)
-    float angle1 = std::atan2(dy1, dx1);
-    float angle2 = std::atan2(dy2, dx2);
-
-    // Difference between angles
-    float angle = angle2 - angle1;
-
-    // Normalize the angle to the range (-π to π)
-    if (angle > M_PI) {
-        angle -= 2 * M_PI;
-    }
-    else if (angle < -M_PI) {
-        angle += 2 * M_PI;
-    }
-
-    return angle;
-}
-
-bool IsClosedByWindingNumber(const EDGE& edge) {
-    if (edge.vertices.size() < 3) {
-        return false;
-    }
-
-    float totalWindingNumber = 0.0f;
-
-    for (size_t i = 0; i < edge.vertices.size(); ++i) {
-        size_t nextIndex = (i + 1) % edge.vertices.size();
-        totalWindingNumber += CalculateAngle(
-            edge.vertices[i],
-            edge.vertices[nextIndex],
-            edge.vertices[0]
-        );
-    }
-
-    return std::abs(totalWindingNumber) > 1e-5;
-}
-
-bool toolExists(const std::vector<ACTION>& Actions, const Tools& targetTool) {
-    return std::any_of(Actions.begin(), Actions.end(), [&](const ACTION& action) {
-        return action.Tool == targetTool;
-    });
-}
-
-std::vector<ACTION> getActionsWithTool(const std::vector<ACTION>& actions, Tools tool) {
-    std::vector<ACTION> result;
-
-    for (const auto& action : actions) {
-        if (action.Tool == tool) {
-            result.push_back(action);
-        }
-    }
-
-    return result;
-}
-
 extern "C" __declspec(dllexport) void UpdateLayers() {
     if (!pRenderTarget) {
         return;
@@ -611,24 +700,12 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
     for (size_t i = 0; i < layers.size(); ++i) {
         if (layers[i].pBitmap) {
             layers[i].pBitmapRenderTarget->BeginDraw();
-            layers[i].pBitmapRenderTarget->Clear(D2D1::ColorF(0,0,0,0));
+            layers[i].pBitmapRenderTarget->Clear(D2D1::ColorF(255,255,255,0));
             layers[i].pBitmapRenderTarget->EndDraw();
         }
     }
 
-    if (toolExists(Actions, TPaintBucket)) {
-        std::vector<ACTION> paintActions = getActionsWithTool(Actions, TPaintBucket);
-        for (size_t i = 0; i < paintActions.size(); i++) {
-            D2D1_COLOR_F fillColor = GetRGBColor(paintActions[i].FillColor);
-
-            layers[paintActions[i].Layer].pBitmapRenderTarget->BeginDraw();
-            layers[paintActions[i].Layer].pBitmapRenderTarget->Clear(fillColor);
-            layers[paintActions[i].Layer].pBitmapRenderTarget->EndDraw();
-        }
-    }
-
     for (size_t i = 0; i < Actions.size(); i++) {
-
         if (Actions[i].Tool == TEraser){
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
@@ -640,48 +717,8 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
 
             layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
         }
-        else if (Actions[i].Tool == TBrush) {
-            ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].Color);
-            ID2D1SolidColorBrush* brushFillColor = D2_CreateSolidBrush(Actions[i].FillColor);
-
-            ID2D1PathGeometry* pPathGeometry = nullptr;
-            pD2DFactory->CreatePathGeometry(&pPathGeometry);
-
-            ID2D1GeometrySink* pSink = nullptr;
-            pPathGeometry->Open(&pSink);
-
-            pSink->BeginFigure(
-                D2D1::Point2F(Actions[i].FreeForm.vertices[0].x, Actions[i].FreeForm.vertices[0].y),
-                D2D1_FIGURE_BEGIN_FILLED
-            );
-
-			for (size_t j = 1; j < Actions[i].FreeForm.vertices.size(); j++) {
-                pSink->AddLine(D2D1::Point2F(Actions[i].FreeForm.vertices[j].x, Actions[i].FreeForm.vertices[j].y));
-			}
-
-            pSink->EndFigure(D2D1_FIGURE_END_OPEN);
-
-            pSink->Close();
-            pSink->Release();
-
-            bool isSelfIntersecting = IsSelfIntersecting(Actions[i].FreeForm);
-            bool isProximityClose = IsProximityClose(Actions[i].FreeForm, 15.0f);
-            bool isCloseByWinding = IsClosedByWindingNumber(Actions[i].FreeForm);
-
-            bool isClosed = isSelfIntersecting || isProximityClose || isCloseByWinding;
-
-            layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
-            layers[Actions[i].Layer].pBitmapRenderTarget->DrawGeometry(pPathGeometry, brushColor, Actions[i].BrushSize);
-			
-            if (isClosed && Actions[i].IsFilled) {
-				layers[Actions[i].Layer].pBitmapRenderTarget->FillGeometry(pPathGeometry, brushFillColor);
-			}
-
-            layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
-
-            pPathGeometry->Release();
-        }
         else if (Actions[i].Tool == TRectangle) {
+
             ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].Color);
 
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
@@ -693,6 +730,7 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
             layers[Actions[i].Layer].pBitmapRenderTarget->PopAxisAlignedClip();
 
             layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
+
         }
         else if (Actions[i].Tool == TEllipse) {
             ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].Color);
@@ -708,22 +746,51 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
 
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
-            layers[Actions[i].Layer].pBitmapRenderTarget->DrawLine(Actions[i].startPoint, Actions[i].endPoint, brushColor, Actions[i].BrushSize, nullptr);
+            layers[Actions[i].Layer].pBitmapRenderTarget->DrawLine(Actions[i].Line.startPoint, Actions[i].Line.endPoint, brushColor, Actions[i].BrushSize, nullptr);
 
             layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
         }
     }
 
+    auto brushActions = getActionsWithTool(Actions, TBrush);
+
+    for (size_t i = 0; i < brushActions.size(); i++) {
+        ID2D1SolidColorBrush* pBrush = nullptr;
+
+        layers[brushActions[i].Layer].pBitmapRenderTarget->BeginDraw();
+
+        for (size_t j = 0; j < brushActions[i].FreeForm.vertices.size(); j++) {
+            D2D1_COLOR_F paintColor = GetRGBColor(brushActions[i].Color);
+
+            layers[brushActions[i].Layer].pBitmapRenderTarget->CreateSolidColorBrush(paintColor, &pBrush);
+
+            D2D1_RECT_F rect = D2D1::RectF(
+                brushActions[i].FreeForm.vertices[j].x - brushActions[i].BrushSize * 0.5f, // Left
+                brushActions[i].FreeForm.vertices[j].y - brushActions[i].BrushSize * 0.5f, // Top
+                brushActions[i].FreeForm.vertices[j].x + brushActions[i].BrushSize * 0.5f, // Right
+                brushActions[i].FreeForm.vertices[j].y + brushActions[i].BrushSize * 0.5f  // Bottom
+            );
+
+            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, pBrush);
+
+            pBrush->Release();
+            pBrush = nullptr;
+        }
+
+        layers[brushActions[i].Layer].pBitmapRenderTarget->EndDraw();
+    }
+
+    std::vector<LayerOrder> sortedLayers = layersOrder;
+
+    std::sort(sortedLayers.begin(), sortedLayers.end(), [](const LayerOrder& a, const LayerOrder& b) {
+        return a.layerOrder < b.layerOrder;
+    });
+
     for (size_t i = 0; i < layersOrder.size(); ++i) {
 
-        std::vector<LayerOrder> sortedLayers = layersOrder;
-
-        std::sort(sortedLayers.begin(), sortedLayers.end(), [](const LayerOrder& a, const LayerOrder& b) {
-            return a.layerOrder < b.layerOrder;
-        });
 
         if (layers[sortedLayers[i].layerIndex].pBitmap) {
-           pRenderTarget->DrawBitmap(layers[sortedLayers[i].layerIndex].pBitmap);
+           pRenderTarget->DrawBitmap(layers[sortedLayers[i].layerIndex].pBitmap.Get());
         }
     }
 
@@ -739,6 +806,137 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
     }
 }
 
+/*extern "C" __declspec(dllexport) void UpdateLayers() {
+    HDC hdc = GetDC(mainHWND);
+    if (!hdc) return;
+
+    RECT rect;
+    GetClientRect(mainHWND, &rect);
+
+    //HDC memDC = CreateCompatibleDC(hdc);
+    //HBITMAP hBitmap = CreateCompatibleBitmap(hdc, rect.right, rect.bottom);
+    //SelectObject(memDC, hBitmap);
+
+    HBRUSH whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
+    FillRect(hdc, &rect, whiteBrush);
+    DeleteObject(whiteBrush);
+
+    for (size_t i = 0; i < layers.size(); ++i) {
+        if (layers[i].hBitmap) {
+            HDC layerDC = CreateCompatibleDC(hdc);
+            SelectObject(layerDC, layers[i].hBitmap);
+
+            RECT layerRect = { 0, 0, rect.right, rect.bottom };
+            HBRUSH clearBrush = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(layerDC, &layerRect, clearBrush);
+            DeleteObject(clearBrush);
+
+            DeleteDC(layerDC);
+        }
+    }
+
+    for (const auto& action : Actions) {
+        if (action.Tool == TEraser) {
+            HDC layerDC = CreateCompatibleDC(hdc);
+            SelectObject(layerDC, layers[action.Layer].hBitmap);
+
+            RECT rectPosition = { action.Position.left, action.Position.top, action.Position.right, action.Position.bottom };
+
+            HRGN clipRegion = CreateRectRgnIndirect(&rectPosition);
+            SelectClipRgn(layerDC, clipRegion);
+
+            HBRUSH transparentBrush = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(layerDC, &rectPosition, transparentBrush);
+            DeleteObject(transparentBrush);
+
+            DeleteObject(clipRegion);
+            DeleteDC(layerDC);
+        }
+        else if (action.Tool == TBrush) {
+            SelectObject(hdc, layers[action.Layer].hBitmap);
+
+            HPEN pen = CreatePen(PS_SOLID, action.BrushSize, action.Color);
+            SelectObject(hdc, pen);
+
+            for (const auto& point : action.FreeForm.vertices) {
+                Rectangle(hdc,
+                    point.x - action.BrushSize / 2, point.y - action.BrushSize / 2,
+                    point.x + action.BrushSize / 2, point.y + action.BrushSize / 2);
+            }
+
+            DeleteObject(pen);
+        }
+        else if (action.Tool == TRectangle) {
+            HDC layerDC = CreateCompatibleDC(hdc);
+            SelectObject(layerDC, layers[action.Layer].hBitmap);
+
+            HBRUSH brush = CreateSolidBrush(action.Color);
+            RECT rectPosition = { action.Position.left, action.Position.top, action.Position.right, action.Position.bottom };
+            FillRect(layerDC, &rectPosition, brush);
+            DeleteObject(brush);
+
+            DeleteDC(layerDC);
+        }
+        else if (action.Tool == TEllipse) {
+            HDC layerDC = CreateCompatibleDC(hdc);
+            SelectObject(layerDC, layers[action.Layer].hBitmap);
+
+            HBRUSH brush = CreateSolidBrush(action.Color);
+            SelectObject(layerDC, brush);
+            
+            int left = (int)(action.Ellipse.point.x - action.Ellipse.radiusX);
+            int top = (int)(action.Ellipse.point.y - action.Ellipse.radiusY);
+            int right = (int)(action.Ellipse.point.x + action.Ellipse.radiusX);
+            int bottom = (int)(action.Ellipse.point.y + action.Ellipse.radiusY);
+
+            Ellipse(layerDC, left, top, right, bottom);
+            DeleteObject(brush);
+
+            DeleteDC(layerDC);
+        }
+        else if (action.Tool == TLine) {
+            HDC layerDC = CreateCompatibleDC(hdc);
+            SelectObject(layerDC, layers[action.Layer].hBitmap);
+
+            HPEN pen = CreatePen(PS_SOLID, action.BrushSize, action.Color);
+            SelectObject(layerDC, pen);
+
+            MoveToEx(layerDC, action.Line.startPoint.x, action.Line.startPoint.y, NULL);
+            LineTo(layerDC, action.Line.endPoint.x, action.Line.endPoint.y);
+
+            DeleteObject(pen);
+            DeleteDC(layerDC);
+        }
+    }
+
+    for (const auto& layer : layersOrder) {
+        if (layers[layer.layerIndex].hBitmap) {
+            HDC layerDC = CreateCompatibleDC(hdc);
+            SelectObject(layerDC, layers[layer.layerIndex].hBitmap);
+
+            //BitBlt(memDC, 0, 0, rect.right, rect.bottom, layerDC, 0, 0, SRCCOPY);
+
+            DeleteDC(layerDC);
+        }
+    }
+
+    for (const auto& action : getActionsWithTool(Actions, TPaintBucket)) {
+        HBRUSH fillBrush = CreateSolidBrush(action.FillColor);
+        SelectObject(hdc, fillBrush);
+
+        COLORREF initialClickedColor = GetPixel(hdc, action.mouseX, action.mouseY);
+        ExtFloodFill(hdc, action.mouseX, action.mouseY, initialClickedColor, FLOODFILLSURFACE);
+
+        DeleteObject(fillBrush);
+    }
+
+    //BitBlt(hdc, 0, 0, rect.right, rect.bottom, memDC, 0, 0, SRCCOPY);
+
+    ReleaseDC(mainHWND, hdc);
+
+    RedrawWindow(mainHWND, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+}*/
+
 extern "C" __declspec(dllexport) void RenderLayers() {
     if (!pRenderTarget) {
         return;
@@ -747,15 +945,14 @@ extern "C" __declspec(dllexport) void RenderLayers() {
     pRenderTarget->BeginDraw();
     pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
 
-    for (size_t i = 0; i < layersOrder.size(); ++i) {
-        std::vector<LayerOrder> sortedLayers = layersOrder;
+    std::vector<LayerOrder> sortedLayers = layersOrder;
+    std::sort(sortedLayers.begin(), sortedLayers.end(), [](const LayerOrder& a, const LayerOrder& b) {
+        return a.layerOrder < b.layerOrder;
+    });
 
-        std::sort(sortedLayers.begin(), sortedLayers.end(), [](const LayerOrder& a, const LayerOrder& b) {
-            return a.layerOrder < b.layerOrder;
-            });
-
+    for (size_t i = 0; i < sortedLayers.size(); ++i) {
         if (layers[sortedLayers[i].layerIndex].pBitmap) {
-            pRenderTarget->DrawBitmap(layers[sortedLayers[i].layerIndex].pBitmap);
+            pRenderTarget->DrawBitmap(layers[sortedLayers[i].layerIndex].pBitmap.Get());
         }
     }
 
@@ -884,8 +1081,8 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
 
                 SelectObject(compatibleDC, hPen);
 
-                RECT pXY = scalePointsToButton(Actions[i].startPoint.x, Actions[i].startPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-                RECT pWZ = scalePointsToButton(Actions[i].endPoint.x, Actions[i].endPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
+                RECT pXY = scalePointsToButton(Actions[i].Line.startPoint.x, Actions[i].Line.startPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
+                RECT pWZ = scalePointsToButton(Actions[i].Line.endPoint.x, Actions[i].Line.endPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
 
                 RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
 
@@ -895,16 +1092,23 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
                 DeleteObject(hPen);
             }
             else if (Actions[i].Tool == TPaintBucket) {
-                
-                COLORREF clickedColor = GetPixel(compatibleDC,0, 0);
+                RECT XY = scalePointsToButton(
+                    Actions[i].mouseX,
+                    Actions[i].mouseY,
+                    (WindowRC.right - WindowRC.left),
+                    (WindowRC.bottom - WindowRC.top),
+                    (rc.right - rc.left),
+                    (rc.bottom - rc.top)
+                );
 
-				HBRUSH fillBrush = CreateSolidBrush(Actions[i].FillColor);
-				SelectObject(compatibleDC, fillBrush);
+                COLORREF clickedColor = GetPixel(compatibleDC, XY.left, XY.top);
 
-                RECT XY = scalePointsToButton(mouseLastClickPosition.x, mouseLastClickPosition.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-				ExtFloodFill(compatibleDC, XY.left, XY.top, clickedColor, FLOODFILLSURFACE);
+                HBRUSH fillBrush = CreateSolidBrush(Actions[i].FillColor);
+                SelectObject(compatibleDC, fillBrush);
 
-				DeleteObject(fillBrush);
+                ExtFloodFill(compatibleDC, XY.left, XY.top, clickedColor, FLOODFILLSURFACE);
+
+                DeleteObject(fillBrush);
             }
         }
     }
@@ -1039,7 +1243,7 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
                 y + brushSize * 0.5f  // Bottom
             );
 
-            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush);
+            layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush);
 
             if (x != prevLeft || y != prevTop) {
                 if (x != -1 && y != -1) {
@@ -1056,7 +1260,7 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
         top + brushSize * 0.5f  // Bottom
     );
 
-    layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush);
+    layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush);
 
     if (left != prevLeft || top != prevTop) {
         if (left != -1 && top != -1) {
@@ -1176,52 +1380,100 @@ extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x
     layers[LayersCount() - 1].pBitmapRenderTarget->EndDraw();
 }
 
-extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd) {
+/*FLOOD FILL*/
 
-    bool isClickInsideClosed = false;
+extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd, float tolerance) {
+    HDC hdc = GetDC(hWnd);
+    if (!hdc) return;
 
-	mouseLastClickPosition = { xInitial, yInitial };
+    const int maxWidth = width;
+    const int maxHeight = height;
 
-    for (size_t i = 0; i < Actions.size(); i++) {
-        if (Actions[i].Tool == TBrush) {
-            bool isSelfIntersecting = IsSelfIntersecting(Actions[i].FreeForm);
-			bool isProximityClose = IsProximityClose(Actions[i].FreeForm, 15.0f);
-			bool isCloseByWinding = IsClosedByWindingNumber(Actions[i].FreeForm);
+    COLORREF targetColor = GetPixel(hdc, xInitial, yInitial);
+    if (targetColor == hexFillColor) {
+        ReleaseDC(hWnd, hdc);
+        return; // No need to fill
+    }
 
-            bool isClosed = isSelfIntersecting || isProximityClose || isCloseByWinding;
+    std::queue<POINT> q;
+    std::unordered_set<PIXEL> visited;
 
-            if (isClosed) {
-                if (IsPointInsidePolygon(Actions[i].FreeForm, VERTICE{ static_cast<float>(xInitial), static_cast<float>(yInitial) })) {
-                    Actions[i].FillColor = hexFillColor;
-					Actions[i].IsFilled = true;
-                    isClickInsideClosed = true;
+    q.push({ xInitial, yInitial });
+    visited.insert({ xInitial, yInitial });
+
+    // Save bitmap state for undo
+    ID2D1Bitmap* oldBitmap = nullptr;
+    layers[layerIndex].pBitmapRenderTarget->GetBitmap(&oldBitmap);
+
+    // Begin draw
+    layers[layerIndex].pBitmapRenderTarget->BeginDraw();
+
+    ID2D1SolidColorBrush* fillBrush = D2_CreateSolidBrush(hexFillColor);
+
+    int pixelCounter = 0;
+    const int pixelsPerFrame = 500;
+
+    while (!q.empty()) {
+        POINT p = q.front(); q.pop();
+
+        COLORREF currentColor = GetPixel(hdc, p.x, p.y);
+
+        if (currentColor != targetColor) continue;
+
+        D2D1_RECT_F pixelRect = D2D1::RectF(
+            static_cast<float>(p.x), static_cast<float>(p.y),
+            static_cast<float>(p.x + 1), static_cast<float>(p.y + 1)
+        );
+
+        layers[layerIndex].pBitmapRenderTarget->FillRectangle(&pixelRect, fillBrush);
+        pixelCounter++;
+
+        // Flush drawing every N pixels
+        if (pixelCounter >= pixelsPerFrame) {
+            layers[layerIndex].pBitmapRenderTarget->EndDraw();
+            RenderLayers();
+            Sleep(1); // Smooth fill effect
+            layers[layerIndex].pBitmapRenderTarget->BeginDraw();
+            pixelCounter = 0;
+        }
+
+        // Add neighbors
+        for (int i = 0; i < 4; ++i) {
+            int nx = p.x + DX[i];
+            int ny = p.y + DY[i];
+
+            if (nx >= 0 && nx < maxWidth && ny >= 0 && ny < maxHeight) {
+                PIXEL np = { nx, ny };
+                if (visited.find(np) == visited.end()) {
+                    COLORREF neighborColor = GetPixel(hdc, nx, ny);
+                    if (neighborColor == targetColor) {
+                        q.push({ nx, ny });
+                        visited.insert(np);
+                    }
                 }
             }
-		}
-        else if (Actions[i].Tool == TRectangle)
-        {
-            if(IsPointInsideRectF(Actions[i].Position, VERTICE{ static_cast<float>(xInitial), static_cast<float>(yInitial) })) {
-                Actions[i].Color = hexFillColor;
-                Actions[i].IsFilled = true;
-                isClickInsideClosed = true;
-            }
-        }
-        else if (Actions[i].Tool == TEllipse) {
-            if (IsPointInsideEllipse(Actions[i].Ellipse, VERTICE{ static_cast<float>(xInitial), static_cast<float>(yInitial) })) {
-                Actions[i].Color = hexFillColor;
-                Actions[i].IsFilled = true;
-                isClickInsideClosed = true;
-            }
         }
     }
 
-    if (!isClickInsideClosed) {
-        ACTION action;
-        action.Tool = TPaintBucket;
-        action.Layer = layerIndex;
-        action.FillColor = hexFillColor;
-        Actions.push_back(action);
+    // Final flush
+    if (pixelCounter > 0) {
+        layers[layerIndex].pBitmapRenderTarget->EndDraw();
+        RenderLayers();
     }
+
+    // Save action for undo
+    ACTION action;
+    action.Tool = TPaintBucket;
+    action.Layer = layerIndex;
+    action.FillColor = hexFillColor;
+    action.mouseX = xInitial;
+    action.mouseY = yInitial;
+    action.undoBitmap = oldBitmap;
+    Actions.push_back(action);
+
+    ReleaseDC(hWnd, hdc);
+
+    DrawLayerPreview(layerIndex);
 }
 
 /* CLEANUP */
@@ -1229,19 +1481,19 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
 extern "C" __declspec(dllexport) void Cleanup() {
     SafeRelease(&pBrush);
     SafeRelease(&pRenderTarget);
-    SafeRelease(&pD2DFactory);
+    SafeRelease(pD2DFactory.GetAddressOf());
     SafeRelease(&transparentBrush);
 
     for (Layer& layer : layers) {
-        if (layer.pBitmapRenderTarget) {
-            layer.pBitmapRenderTarget->Release();
-        }
-        if (layer.pBitmap) {
-            layer.pBitmap->Release();
-        }
+        SafeRelease(&layer.pBitmapRenderTarget);
+        layer.pBitmap.Reset(); // Automatically releases the bitmap
     }
 
     layers.clear();
+    layersOrder.clear();
+    Actions.clear();
+    RedoActions.clear();
+    LayerButtons.clear();
 }
 
 template <class T> void SafeRelease(T** ppT)
