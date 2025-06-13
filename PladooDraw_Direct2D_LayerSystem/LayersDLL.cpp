@@ -74,11 +74,11 @@ struct ACTION {
     COLORREF Color;
 	LINE Line;
     int BrushSize;
-    std::vector<std::pair<int, int>> pixelsToFill;
     bool IsFilled;
     int mouseX;
     int mouseY;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> undoBitmap;
+    std::vector<POINT> pixelsToFill;
 };
 
 struct PIXEL {
@@ -277,44 +277,7 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
         MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
         return renderResult;
     }
-
-    /*HRESULT renderResult = pD2DFactory->CreateHwndRenderTarget(
-        D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_HARDWARE,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-            0, 0,
-            D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE
-        ),
-        D2D1::HwndRenderTargetProperties(hWnd, size),
-        &pRenderTarget
-    );*/
-
-    /*if (FAILED(renderResult))
-    {
-        // Buffer to store the error message
-        wchar_t errorMessage[512];
-
-        // Format the HRESULT error code as a message
-        FormatMessage(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            nullptr,
-            renderResult,
-            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            errorMessage,
-            (sizeof(errorMessage) / sizeof(wchar_t)),
-            nullptr
-        );
-
-        // Create a formatted message with the HRESULT code and description
-        wchar_t finalMessage[1024];
-        swprintf_s(finalMessage, L"Erro ao criar hWndRenderTarget\nCódigo: 0x%08X\nMensagem: %s", renderResult, errorMessage);
-
-        // Show the message box with error details
-        MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
-
-        return renderResult;
-    }*/
-       
+      
     AddLayer();
 
     RenderLayers();
@@ -356,7 +319,7 @@ ID2D1SolidColorBrush* D2_CreateSolidBrush(COLORREF hexColor) {
 
     if (lastHexColor == UINT_MAX || hexColor != lastHexColor) {
 
-        DeleteObject(pBrush);
+        SafeRelease(&pBrush);
 
         D2D1_COLOR_F color = GetRGBColor(hexColor);
 
@@ -569,18 +532,6 @@ extern "C" __declspec(dllexport) void handleMouseUp() {
 		isDrawingBrush = false;
 	}
 
-    if (isPaintBucket) {
-
-        if (getActionsWithTool(Actions, TPaintBucket).size() == 0) {
-            ACTION action;
-            action.Tool = TPaintBucket;
-            action.Layer = layerIndex;
-            Actions.push_back(action);
-        }
-
-        isPaintBucket = false;
-    }
-
     startPoint = D2D1::Point2F(0, 0);
     endPoint = D2D1::Point2F(0, 0);
  
@@ -593,28 +544,12 @@ extern "C" __declspec(dllexport) void handleMouseUp() {
     DrawLayerPreview(layerIndex);
 }
 
-/*extern "C" __declspec(dllexport) void Undo() {
-    if (Actions.size() > 0) {
-        RedoActions.push_back(Actions[Actions.size() - 1]);
-        Actions.pop_back();
-    }
-}*/
-
 extern "C" __declspec(dllexport) void Undo() {
     if (Actions.size() > 0) {
         ACTION lastAction = Actions.back();
         RedoActions.push_back(lastAction);
         Actions.pop_back();
-        if (lastAction.Tool == TPaintBucket) {
-            layers[lastAction.Layer].pBitmapRenderTarget->BeginDraw();
-            layers[lastAction.Layer].pBitmapRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-            if (lastAction.undoBitmap) {
-                layers[lastAction.Layer].pBitmapRenderTarget->DrawBitmap(lastAction.undoBitmap.Get());
-            }
-            layers[lastAction.Layer].pBitmapRenderTarget->EndDraw();
-            layers[lastAction.Layer].pBitmapRenderTarget->GetBitmap(&layers[lastAction.Layer].pBitmap);
-        }
-        RenderLayers();
+ 
         DrawLayerPreview(layerIndex);
     }
 }
@@ -631,9 +566,7 @@ extern "C" __declspec(dllexport) void Redo() {
         ACTION action = RedoActions.back();
         Actions.push_back(action);
         RedoActions.pop_back();
-        if (action.Tool == TPaintBucket) {
-            PaintBucketTool(action.mouseX, action.mouseY, action.FillColor, mainHWND, 0.01f);
-        }
+
         RenderLayers();
         DrawLayerPreview(layerIndex);
     }
@@ -795,47 +728,57 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
 
             layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
         }
-    }
+        else if (Actions[i].Tool == TBrush) {
+            ID2D1SolidColorBrush* pBrush = nullptr;
 
-    auto brushActions = getActionsWithTool(Actions, TBrush);
+            layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
-    for (size_t i = 0; i < brushActions.size(); i++) {
-        ID2D1SolidColorBrush* pBrush = nullptr;
+            for (size_t j = 0; j < Actions[i].FreeForm.vertices.size(); j++) {
+                D2D1_COLOR_F paintColor = GetRGBColor(Actions[i].Color);
 
-        layers[brushActions[i].Layer].pBitmapRenderTarget->BeginDraw();
+                layers[Actions[i].Layer].pBitmapRenderTarget->CreateSolidColorBrush(paintColor, &pBrush);
 
-        for (size_t j = 0; j < brushActions[i].FreeForm.vertices.size(); j++) {
-            D2D1_COLOR_F paintColor = GetRGBColor(brushActions[i].Color);
+                D2D1_RECT_F rect = D2D1::RectF(
+                    Actions[i].FreeForm.vertices[j].x - Actions[i].BrushSize * 0.5f, // Left
+                    Actions[i].FreeForm.vertices[j].y - Actions[i].BrushSize * 0.5f, // Top
+                    Actions[i].FreeForm.vertices[j].x + Actions[i].BrushSize * 0.5f, // Right
+                    Actions[i].FreeForm.vertices[j].y + Actions[i].BrushSize * 0.5f  // Bottom
+                );
 
-            layers[brushActions[i].Layer].pBitmapRenderTarget->CreateSolidColorBrush(paintColor, &pBrush);
+                layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, pBrush);
 
-            D2D1_RECT_F rect = D2D1::RectF(
-                brushActions[i].FreeForm.vertices[j].x - brushActions[i].BrushSize * 0.5f, // Left
-                brushActions[i].FreeForm.vertices[j].y - brushActions[i].BrushSize * 0.5f, // Top
-                brushActions[i].FreeForm.vertices[j].x + brushActions[i].BrushSize * 0.5f, // Right
-                brushActions[i].FreeForm.vertices[j].y + brushActions[i].BrushSize * 0.5f  // Bottom
-            );
+                pBrush->Release();
+                pBrush = nullptr;
+            }
 
-            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, pBrush);
-
-            pBrush->Release();
-            pBrush = nullptr;
+            layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
         }
+        else if (Actions[i].Tool == TPaintBucket) {
+            const int threadCount = std::thread::hardware_concurrency();
+            std::vector<std::thread> threads;
+            std::mutex drawMutex;
 
-        layers[brushActions[i].Layer].pBitmapRenderTarget->EndDraw();
-    }
+            // Supõe que você tenha configurado fillBrush e layers[layerIndex].pBitmapRenderTarget
 
-    std::vector<LayerOrder> sortedLayers = layersOrder;
+            ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].FillColor);
+            layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
-    std::sort(sortedLayers.begin(), sortedLayers.end(), [](const LayerOrder& a, const LayerOrder& b) {
-        return a.layerOrder < b.layerOrder;
-    });
+            for (int t = 0; t < threadCount; ++t) {
+                threads.emplace_back([&, t]() {
 
-    for (size_t i = 0; i < layersOrder.size(); ++i) {
+                    for (size_t j = t; j < Actions[i].pixelsToFill.size(); j += threadCount) {
+                        POINT p = Actions[i].pixelsToFill[j];
+                        D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
 
+                        std::lock_guard<std::mutex> lock(drawMutex);
+                        layers[Actions[i].Layer].pBitmapRenderTarget->FillRectangle(&rect, brushColor);
+                    }
+                });
+            }
 
-        if (layers[sortedLayers[i].layerIndex].pBitmap) {
-           pRenderTarget->DrawBitmap(layers[sortedLayers[i].layerIndex].pBitmap.Get());
+            for (auto& th : threads) th.join();
+
+            layers[layerIndex].pBitmapRenderTarget->EndDraw();           
         }
     }
 
@@ -849,6 +792,8 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
     if (FAILED(hr)) {
         MessageBox(NULL, L"Failed to update layers", L"Error", MB_OK);
     }
+
+    RenderLayers();
 }
 
 /*extern "C" __declspec(dllexport) void UpdateLayers() {
@@ -1022,6 +967,14 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
     HDC compatibleDC = CreateCompatibleDC(hdc);
 
     SelectObject(compatibleDC, hBitmap);
+
+    BITMAP bmp = {};
+    GetObject(hBitmap, sizeof(BITMAP), &bmp);
+
+    RECT bmpRect = { 0, 0, bmp.bmWidth, bmp.bmHeight };
+
+    HBRUSH whiteBrush = (HBRUSH)GetStockObject(WHITE_BRUSH);
+    FillRect(compatibleDC, &bmpRect, whiteBrush);
     
 	if (!LayerButtons[layerIndex].isInitialPainted) {
 		HBRUSH whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
@@ -1511,7 +1464,7 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
     // Supõe que você tenha configurado fillBrush e layers[layerIndex].pBitmapRenderTarget
 
     layers[layerIndex].pBitmapRenderTarget->BeginDraw();
-    ID2D1SolidColorBrush* fillBrush = D2_CreateSolidBrush(fillColor);
+    ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(fillColor);
 
     for (int t = 0; t < threadCount; ++t) {
         threads.emplace_back([&, t]() {
@@ -1520,9 +1473,9 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
                 D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
 
                 std::lock_guard<std::mutex> lock(drawMutex);
-                layers[layerIndex].pBitmapRenderTarget->FillRectangle(&rect, fillBrush);
+                layers[layerIndex].pBitmapRenderTarget->FillRectangle(&rect, brush);
             }
-            });
+        });
     }
 
     for (auto& th : threads) th.join();
@@ -1530,115 +1483,17 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
     layers[layerIndex].pBitmapRenderTarget->EndDraw();
     RenderLayers();
 
-    // Salvamento para undo
-    ID2D1Bitmap* oldBitmap = nullptr;
-    layers[layerIndex].pBitmapRenderTarget->GetBitmap(&oldBitmap);
-
     ACTION action;
     action.Tool = TPaintBucket;
     action.Layer = layerIndex;
     action.FillColor = fillColor;
     action.mouseX = xInitial;
     action.mouseY = yInitial;
-    action.undoBitmap = oldBitmap;
+    action.pixelsToFill = pixelsToFill;
     Actions.push_back(action);
 
     DrawLayerPreview(layerIndex);
 }
-
-/*extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd, float tolerance) {
-    HDC hdc = GetDC(hWnd);
-    if (!hdc) return;
-
-    const int maxWidth = width;
-    const int maxHeight = height;
-
-    COLORREF targetColor = GetPixel(hdc, xInitial, yInitial);
-    if (targetColor == hexFillColor) {
-        ReleaseDC(hWnd, hdc);
-        return; // No need to fill
-    }
-
-    std::queue<POINT> q;
-    std::unordered_set<PIXEL> visited;
-
-    q.push({ xInitial, yInitial });
-    visited.insert({ xInitial, yInitial });
-
-    // Save bitmap state for undo
-    ID2D1Bitmap* oldBitmap = nullptr;
-    layers[layerIndex].pBitmapRenderTarget->GetBitmap(&oldBitmap);
-
-    // Begin draw
-    layers[layerIndex].pBitmapRenderTarget->BeginDraw();
-
-    ID2D1SolidColorBrush* fillBrush = D2_CreateSolidBrush(hexFillColor);
-
-    int pixelCounter = 0;
-    const int pixelsPerFrame = 500;
-
-    while (!q.empty()) {
-        POINT p = q.front(); q.pop();
-
-        COLORREF currentColor = GetPixel(hdc, p.x, p.y);
-
-        if (currentColor != targetColor) continue;
-
-        D2D1_RECT_F pixelRect = D2D1::RectF(
-            static_cast<float>(p.x), static_cast<float>(p.y),
-            static_cast<float>(p.x + 1), static_cast<float>(p.y + 1)
-        );
-
-        layers[layerIndex].pBitmapRenderTarget->FillRectangle(&pixelRect, fillBrush);
-        pixelCounter++;
-
-        // Flush drawing every N pixels
-        if (pixelCounter >= pixelsPerFrame) {
-            layers[layerIndex].pBitmapRenderTarget->EndDraw();
-            RenderLayers();
-            Sleep(1); // Smooth fill effect
-            layers[layerIndex].pBitmapRenderTarget->BeginDraw();
-            pixelCounter = 0;
-       }
-
-        // Add neighbors
-        for (int i = 0; i < 4; ++i) {
-            int nx = p.x + DX[i];
-            int ny = p.y + DY[i];
-
-            if (nx >= 0 && nx < maxWidth && ny >= 0 && ny < maxHeight) {
-                PIXEL np = { nx, ny };
-                if (visited.find(np) == visited.end()) {
-                    COLORREF neighborColor = GetPixel(hdc, nx, ny);
-                    if (neighborColor == targetColor) {
-                        q.push({ nx, ny });
-                        visited.insert(np);
-                    }
-                }
-            }
-        }
-    }
-
-    // Final flush
-    if (pixelCounter > 0) {
-        layers[layerIndex].pBitmapRenderTarget->EndDraw();
-        RenderLayers();
-    }
-
-    // Save action for undo
-    ACTION action;
-    action.Tool = TPaintBucket;
-    action.Layer = layerIndex;
-    action.FillColor = hexFillColor;
-    action.mouseX = xInitial;
-    action.mouseY = yInitial;
-    action.undoBitmap = oldBitmap;
-    Actions.push_back(action);
-
-    ReleaseDC(hWnd, hdc);
-
-    DrawLayerPreview(layerIndex);
-}*/
 
 /* CLEANUP */
 
