@@ -15,6 +15,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <numbers>
 #include <queue>
 #include <random>
@@ -22,6 +23,7 @@
 #include <sstream>
 #include <stack>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -231,9 +233,52 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
     width = rc.right - rc.left;
     height = rc.bottom - rc.top;
 
-    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
+    D2D1_SIZE_U size = D2D1::SizeU(width, height);
+    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(hWnd, size);
 
-    HRESULT renderResult = pD2DFactory->CreateHwndRenderTarget(
+    // Lista com tentativas: hardware depois software
+    D2D1_RENDER_TARGET_PROPERTIES attempts[] = {
+        D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_HARDWARE,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            0, 0,
+            D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE
+        ),
+        D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            0, 0,
+            D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE
+        )
+    };
+
+    HRESULT renderResult = E_FAIL;
+    for (const auto& props : attempts) {
+        renderResult = pD2DFactory->CreateHwndRenderTarget(props, hwndProps, &pRenderTarget);
+        if (SUCCEEDED(renderResult)) {
+            break;
+        }
+    }
+
+    if (FAILED(renderResult)) {
+        wchar_t errorMessage[512];
+        FormatMessage(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr,
+            renderResult,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            errorMessage,
+            (sizeof(errorMessage) / sizeof(wchar_t)),
+            nullptr
+        );
+
+        wchar_t finalMessage[1024];
+        swprintf_s(finalMessage, L"Erro ao criar hWndRenderTarget\nCódigo: 0x%08X\nMensagem: %s", renderResult, errorMessage);
+        MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
+        return renderResult;
+    }
+
+    /*HRESULT renderResult = pD2DFactory->CreateHwndRenderTarget(
         D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_HARDWARE,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
@@ -242,9 +287,9 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
         ),
         D2D1::HwndRenderTargetProperties(hWnd, size),
         &pRenderTarget
-    );
+    );*/
 
-    if (FAILED(renderResult))
+    /*if (FAILED(renderResult))
     {
         // Buffer to store the error message
         wchar_t errorMessage[512];
@@ -268,7 +313,7 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
         MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
 
         return renderResult;
-    }
+    }*/
        
     AddLayer();
 
@@ -1382,7 +1427,126 @@ extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x
 
 /*FLOOD FILL*/
 
-extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd, float tolerance) {
+#define DX {1, -1, 0, 0}
+#define DY {0, 0, 1, -1}
+
+// Função para capturar bitmap da janela
+std::vector<COLORREF> CaptureWindowPixels(HWND hWnd, int width, int height) {
+    HDC hdcWindow = GetDC(hWnd);
+    HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
+
+    HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
+    SelectObject(hdcMemDC, hBitmap);
+
+    BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY);
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height; // Top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    std::vector<COLORREF> pixels(width * height);
+    GetDIBits(hdcMemDC, hBitmap, 0, height, pixels.data(), &bmi, DIB_RGB_COLORS);
+
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMemDC);
+    ReleaseDC(hWnd, hdcWindow);
+
+    return pixels;
+}
+
+inline int Index(int x, int y, int width) {
+    return y * width + x;
+}
+
+extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF fillColor, HWND hWnd, float tolerance) {
+    const int maxWidth = width;  // você deve definir width
+    const int maxHeight = height;
+
+    std::vector<COLORREF> pixels = CaptureWindowPixels(hWnd, maxWidth, maxHeight);
+    COLORREF targetColor = pixels[Index(xInitial, yInitial, maxWidth)];
+    if (targetColor == fillColor) return;
+
+    std::queue<POINT> q;
+    std::set<int> visited;
+    std::vector<POINT> pixelsToFill;
+
+    q.push({ xInitial, yInitial });
+    visited.insert(Index(xInitial, yInitial, maxWidth));
+
+    const int dx[] = DX;
+    const int dy[] = DY;
+
+    // Flood fill (fase 1 - coleta)
+    while (!q.empty()) {
+        POINT p = q.front(); q.pop();
+        COLORREF current = pixels[Index(p.x, p.y, maxWidth)];
+
+        if (current != targetColor) continue;
+
+        pixelsToFill.push_back(p);
+
+        for (int i = 0; i < 4; ++i) {
+            int nx = p.x + dx[i];
+            int ny = p.y + dy[i];
+
+            if (nx >= 0 && nx < maxWidth && ny >= 0 && ny < maxHeight) {
+                int idx = Index(nx, ny, maxWidth);
+                if (visited.find(idx) == visited.end() && pixels[idx] == targetColor) {
+                    q.push({ nx, ny });
+                    visited.insert(idx);
+                }
+            }
+        }
+    }
+
+    // Pintura paralela (fase 2)
+    const int threadCount = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads;
+    std::mutex drawMutex;
+
+    // Supõe que você tenha configurado fillBrush e layers[layerIndex].pBitmapRenderTarget
+
+    layers[layerIndex].pBitmapRenderTarget->BeginDraw();
+    ID2D1SolidColorBrush* fillBrush = D2_CreateSolidBrush(fillColor);
+
+    for (int t = 0; t < threadCount; ++t) {
+        threads.emplace_back([&, t]() {
+            for (size_t i = t; i < pixelsToFill.size(); i += threadCount) {
+                POINT p = pixelsToFill[i];
+                D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
+
+                std::lock_guard<std::mutex> lock(drawMutex);
+                layers[layerIndex].pBitmapRenderTarget->FillRectangle(&rect, fillBrush);
+            }
+            });
+    }
+
+    for (auto& th : threads) th.join();
+
+    layers[layerIndex].pBitmapRenderTarget->EndDraw();
+    RenderLayers();
+
+    // Salvamento para undo
+    ID2D1Bitmap* oldBitmap = nullptr;
+    layers[layerIndex].pBitmapRenderTarget->GetBitmap(&oldBitmap);
+
+    ACTION action;
+    action.Tool = TPaintBucket;
+    action.Layer = layerIndex;
+    action.FillColor = fillColor;
+    action.mouseX = xInitial;
+    action.mouseY = yInitial;
+    action.undoBitmap = oldBitmap;
+    Actions.push_back(action);
+
+    DrawLayerPreview(layerIndex);
+}
+
+/*extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd, float tolerance) {
     HDC hdc = GetDC(hWnd);
     if (!hdc) return;
 
@@ -1435,7 +1599,7 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
             Sleep(1); // Smooth fill effect
             layers[layerIndex].pBitmapRenderTarget->BeginDraw();
             pixelCounter = 0;
-        }
+       }
 
         // Add neighbors
         for (int i = 0; i < 4; ++i) {
@@ -1474,7 +1638,7 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
     ReleaseDC(hWnd, hdc);
 
     DrawLayerPreview(layerIndex);
-}
+}*/
 
 /* CLEANUP */
 
