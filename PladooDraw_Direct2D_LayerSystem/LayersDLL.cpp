@@ -314,23 +314,6 @@ void CreateLogData(std::string fileName, std::string content) {
     return;
 }
 
-ID2D1SolidColorBrush* D2_CreateSolidBrush(COLORREF hexColor) {
-    currentColor = hexColor;
-
-    if (lastHexColor == UINT_MAX || hexColor != lastHexColor) {
-
-        SafeRelease(&pBrush);
-
-        D2D1_COLOR_F color = GetRGBColor(hexColor);
-
-        pRenderTarget->CreateSolidColorBrush(color, &pBrush);
-    }
-
-    lastHexColor = hexColor;
-
-    return pBrush;
-}
-
 D2D1_COLOR_F GetRGBColor(COLORREF color) {
     float r = (color & 0xFF) / 255.0f;         
     float g = ((color >> 8) & 0xFF) / 255.0f;  
@@ -450,13 +433,15 @@ void FillRectangleColors(const D2D1_RECT_F& rect, std::vector<D2D1_COLOR_F>& ind
 extern "C" __declspec(dllexport) void handleMouseUp() {
 
     if (isDrawingRectange || isDrawingEllipse || isDrawingLine) {
-        ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(currentColor);
+        
+        ComPtr<ID2D1SolidColorBrush> brush;
+        pRenderTarget->CreateSolidColorBrush(GetRGBColor(currentColor), &brush);
 
         layers[layerIndex].pBitmapRenderTarget->BeginDraw();              
 
         if (isDrawingRectange) {
             layers[layerIndex].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rectangle, brush);
+            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rectangle, brush.Get());
             layers[layerIndex].pBitmapRenderTarget->PopAxisAlignedClip();
 
             ACTION action;
@@ -473,7 +458,7 @@ extern "C" __declspec(dllexport) void handleMouseUp() {
         }
         
         if (isDrawingEllipse) {
-            layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush);
+            layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush.Get());
 
             ACTION action;
             action.Tool = TEllipse;
@@ -488,7 +473,7 @@ extern "C" __declspec(dllexport) void handleMouseUp() {
         }
 
         if (isDrawingLine) {
-            layers[layerIndex].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush, currentBrushSize, nullptr);
+            layers[layerIndex].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), currentBrushSize, nullptr);
 
             ACTION action;
             action.Tool = TLine;
@@ -697,13 +682,14 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
         }
         else if (Actions[i].Tool == TRectangle) {
 
-            ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].Color);
+            ComPtr<ID2D1SolidColorBrush> brushColor;
+            pRenderTarget->CreateSolidColorBrush(GetRGBColor(Actions[i].Color), &brushColor);
 
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
             layers[Actions[i].Layer].pBitmapRenderTarget->PushAxisAlignedClip(Actions[i].Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
-            layers[Actions[i].Layer].pBitmapRenderTarget->FillRectangle(Actions[i].Position, brushColor);
+            layers[Actions[i].Layer].pBitmapRenderTarget->FillRectangle(Actions[i].Position, brushColor.Get());
 
             layers[Actions[i].Layer].pBitmapRenderTarget->PopAxisAlignedClip();
 
@@ -711,20 +697,22 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
 
         }
         else if (Actions[i].Tool == TEllipse) {
-            ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].Color);
+            ComPtr<ID2D1SolidColorBrush> brushColor;
+            pRenderTarget->CreateSolidColorBrush(GetRGBColor(Actions[i].Color), &brushColor);
 
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
-            layers[Actions[i].Layer].pBitmapRenderTarget->FillEllipse(Actions[i].Ellipse, brushColor);
+            layers[Actions[i].Layer].pBitmapRenderTarget->FillEllipse(Actions[i].Ellipse, brushColor.Get());
 
             layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
         }
         else if (Actions[i].Tool == TLine) {
-            ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].Color);
+            ComPtr<ID2D1SolidColorBrush> brushColor;
+            pRenderTarget->CreateSolidColorBrush(GetRGBColor(Actions[i].Color), &brushColor);
 
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
-            layers[Actions[i].Layer].pBitmapRenderTarget->DrawLine(Actions[i].Line.startPoint, Actions[i].Line.endPoint, brushColor, Actions[i].BrushSize, nullptr);
+            layers[Actions[i].Layer].pBitmapRenderTarget->DrawLine(Actions[i].Line.startPoint, Actions[i].Line.endPoint, brushColor.Get(), Actions[i].BrushSize, nullptr);
 
             layers[Actions[i].Layer].pBitmapRenderTarget->EndDraw();
         }
@@ -760,7 +748,9 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
 
             // Supõe que você tenha configurado fillBrush e layers[layerIndex].pBitmapRenderTarget
 
-            ID2D1SolidColorBrush* brushColor = D2_CreateSolidBrush(Actions[i].FillColor);
+            ComPtr<ID2D1SolidColorBrush> brushColor;
+            pRenderTarget->CreateSolidColorBrush(GetRGBColor(Actions[i].FillColor), &brushColor);
+
             layers[Actions[i].Layer].pBitmapRenderTarget->BeginDraw();
 
             for (int t = 0; t < threadCount; ++t) {
@@ -771,7 +761,7 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
                         D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
 
                         std::lock_guard<std::mutex> lock(drawMutex);
-                        layers[Actions[i].Layer].pBitmapRenderTarget->FillRectangle(&rect, brushColor);
+                        layers[Actions[i].Layer].pBitmapRenderTarget->FillRectangle(&rect, brushColor.Get());
                     }
                 });
             }
@@ -1204,7 +1194,9 @@ extern "C" __declspec(dllexport) void EraserTool(int left, int top, int brushSiz
 }
 
 extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexColor, int brushSize) {
-    ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(hexColor);
+    ComPtr<ID2D1SolidColorBrush> brush;
+    pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
+    
     currentBrushSize = brushSize;
 
     isDrawingBrush = true;
@@ -1241,7 +1233,7 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
                 y + brushSize * 0.5f  // Bottom
             );
 
-            layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush);
+            layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
 
             if (x != prevLeft || y != prevTop) {
                 if (x != -1 && y != -1) {
@@ -1258,7 +1250,7 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
         top + brushSize * 0.5f  // Bottom
     );
 
-    layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush);
+    layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
 
     if (left != prevLeft || top != prevTop) {
         if (left != -1 && top != -1) {
@@ -1275,7 +1267,8 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
 }
 
 extern "C" __declspec(dllexport) void RectangleTool(int left, int top, int right, int bottom, unsigned int hexColor) {
-    ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(hexColor);
+    ComPtr<ID2D1SolidColorBrush> brush;
+    pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
 
     if (!isDrawingRectange) {
         AddLayer();
@@ -1298,7 +1291,7 @@ extern "C" __declspec(dllexport) void RectangleTool(int left, int top, int right
 
     layers[LayersCount() - 1].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
-    layers[LayersCount() - 1].pBitmapRenderTarget->FillRectangle(rectangle, brush);
+    layers[LayersCount() - 1].pBitmapRenderTarget->FillRectangle(rectangle, brush.Get());
 
     layers[LayersCount() - 1].pBitmapRenderTarget->PopAxisAlignedClip();
 
@@ -1308,7 +1301,8 @@ extern "C" __declspec(dllexport) void RectangleTool(int left, int top, int right
 }
 
 extern "C" __declspec(dllexport) void EllipseTool(int left, int top, int right, int bottom, unsigned int hexColor) {
-    ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(hexColor);
+    ComPtr<ID2D1SolidColorBrush> brush;
+    pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
     
     if (!isDrawingEllipse) {
         AddLayer();
@@ -1338,7 +1332,7 @@ extern "C" __declspec(dllexport) void EllipseTool(int left, int top, int right, 
         layers[LayersCount() - 1].pBitmapRenderTarget->PopAxisAlignedClip();
     }
 
-    layers[LayersCount() - 1].pBitmapRenderTarget->FillEllipse(ellipse, brush);
+    layers[LayersCount() - 1].pBitmapRenderTarget->FillEllipse(ellipse, brush.Get());
 
     prevEllipse = ellipse;
 
@@ -1346,7 +1340,8 @@ extern "C" __declspec(dllexport) void EllipseTool(int left, int top, int right, 
 }
 
 extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor, int brushSize) {
-    ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(hexColor);
+    ComPtr<ID2D1SolidColorBrush> brush;
+    pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
     currentBrushSize = brushSize;
 
     if (!isDrawingLine) {
@@ -1373,7 +1368,7 @@ extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x
     startPoint = D2D1::Point2F(xInitial, yInitial);
     endPoint = D2D1::Point2F(x, y);
 
-    layers[LayersCount() - 1].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush, brushSize, nullptr);
+    layers[LayersCount() - 1].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), brushSize, nullptr);
 
     layers[LayersCount() - 1].pBitmapRenderTarget->EndDraw();
 }
@@ -1464,7 +1459,9 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
     // Supõe que você tenha configurado fillBrush e layers[layerIndex].pBitmapRenderTarget
 
     layers[layerIndex].pBitmapRenderTarget->BeginDraw();
-    ID2D1SolidColorBrush* brush = D2_CreateSolidBrush(fillColor);
+    
+    ComPtr<ID2D1SolidColorBrush> brush;
+    pRenderTarget->CreateSolidColorBrush(GetRGBColor(fillColor), &brush);
 
     for (int t = 0; t < threadCount; ++t) {
         threads.emplace_back([&, t]() {
@@ -1473,7 +1470,7 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
                 D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
 
                 std::lock_guard<std::mutex> lock(drawMutex);
-                layers[layerIndex].pBitmapRenderTarget->FillRectangle(&rect, brush);
+                layers[layerIndex].pBitmapRenderTarget->FillRectangle(&rect, brush.Get());
             }
         });
     }

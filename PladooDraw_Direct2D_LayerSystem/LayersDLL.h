@@ -2,9 +2,7 @@
 #include <windows.h>
 #include <d2d1.h>
 
-void InitFloodInterop(int width, int height);
 D2D1_COLOR_F GetRGBColor(COLORREF color);
-ID2D1SolidColorBrush* D2_CreateSolidBrush(COLORREF hexColor);
 template <class T> void SafeRelease(T** ppT);
 extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton);
 
