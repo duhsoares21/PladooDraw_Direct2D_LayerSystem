@@ -100,7 +100,7 @@ namespace std {
 }
 
 struct Layer {
-    ID2D1BitmapRenderTarget* pBitmapRenderTarget;
+    Microsoft::WRL::ComPtr <ID2D1BitmapRenderTarget> pBitmapRenderTarget;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> pBitmap;
     HBITMAP hBitmap;
 };
@@ -166,7 +166,7 @@ static int currentBrushSize = 0;
 static int prevLeft = -1;
 static int prevTop = -1;
 
-static bool isDrawingRectange = false;
+static bool isDrawingRectangle = false;
 static bool isDrawingEllipse = false;
 static bool isDrawingBrush = false;
 static bool isDrawingLine = false;
@@ -197,7 +197,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
             break;
 
         case DLL_PROCESS_DETACH:
-        
+            Cleanup();
             break;
 
         case DLL_THREAD_ATTACH:
@@ -432,17 +432,20 @@ void FillRectangleColors(const D2D1_RECT_F& rect, std::vector<D2D1_COLOR_F>& ind
 
 extern "C" __declspec(dllexport) void handleMouseUp() {
 
-    if (isDrawingRectange || isDrawingEllipse || isDrawingLine) {
+    if (isDrawingRectangle || isDrawingEllipse || isDrawingLine) {
         
         ComPtr<ID2D1SolidColorBrush> brush;
         pRenderTarget->CreateSolidColorBrush(GetRGBColor(currentColor), &brush);
 
         layers[layerIndex].pBitmapRenderTarget->BeginDraw();              
 
-        if (isDrawingRectange) {
+        if (isDrawingRectangle) {
             layers[layerIndex].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
             layers[layerIndex].pBitmapRenderTarget->FillRectangle(rectangle, brush.Get());
             layers[layerIndex].pBitmapRenderTarget->PopAxisAlignedClip();
+
+            //OutputDebugStringA("CC: " + currentColor);
+            //OutputDebugStringA("HC: " + hexColor);
 
             ACTION action;
             action.Tool = TRectangle;
@@ -454,7 +457,7 @@ extern "C" __declspec(dllexport) void handleMouseUp() {
             //FillRectangleColors(rectangle, layersOrder[findLayerIndex(layersOrder, layerIndex)].indexedColors, GetRGBColor(currentColor));
 
             rectangle = D2D1::RectF(0, 0, 0, 0);
-            isDrawingRectange = false;
+            isDrawingRectangle = false;
         }
         
         if (isDrawingEllipse) {
@@ -583,7 +586,7 @@ extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton) {
 }
 
 extern "C" __declspec(dllexport) HRESULT AddLayer() {
-    ID2D1BitmapRenderTarget* pBitmapRenderTarget = nullptr;
+    ComPtr<ID2D1BitmapRenderTarget> pBitmapRenderTarget;
 
     D2D1_SIZE_F size = pRenderTarget->GetSize();
 
@@ -1270,11 +1273,13 @@ extern "C" __declspec(dllexport) void RectangleTool(int left, int top, int right
     ComPtr<ID2D1SolidColorBrush> brush;
     pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
 
-    if (!isDrawingRectange) {
+    if (!isDrawingRectangle) {
         AddLayer();
     }
 
-    isDrawingRectange = true;
+    isDrawingRectangle = true;
+
+    currentColor = hexColor;
 
     layers[LayersCount() - 1].pBitmapRenderTarget->BeginDraw();
 
@@ -1309,6 +1314,8 @@ extern "C" __declspec(dllexport) void EllipseTool(int left, int top, int right, 
     }
 
     isDrawingEllipse = true;
+
+    currentColor = hexColor;
 
     layers[LayersCount() - 1].pBitmapRenderTarget->BeginDraw();
 
@@ -1349,6 +1356,8 @@ extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x
     }
 
     isDrawingLine = true;
+
+    currentColor = hexColor;
     
     layers[LayersCount() - 1].pBitmapRenderTarget->BeginDraw();
 
@@ -1384,6 +1393,7 @@ std::vector<COLORREF> CaptureWindowPixels(HWND hWnd, int width, int height) {
     HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
 
     HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
+
     SelectObject(hdcMemDC, hBitmap);
 
     BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY);
@@ -1501,7 +1511,6 @@ extern "C" __declspec(dllexport) void Cleanup() {
     SafeRelease(&transparentBrush);
 
     for (Layer& layer : layers) {
-        SafeRelease(&layer.pBitmapRenderTarget);
         layer.pBitmap.Reset(); // Automatically releases the bitmap
     }
 
