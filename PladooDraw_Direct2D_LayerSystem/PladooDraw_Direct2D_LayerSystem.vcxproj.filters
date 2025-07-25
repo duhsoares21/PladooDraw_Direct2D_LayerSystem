@@ -33,9 +33,4 @@
       <Filter>Arquivos de Origem</Filter>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="FloodFillCS.hlsl">
-      <Filter>Arquivos de Origem</Filter>
-    </FxCompile>
-  </ItemGroup>
 </Project>

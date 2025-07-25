@@ -40,94 +40,8 @@
 using namespace Microsoft::WRL;
 using namespace std;
 
-struct VERTICE {
-    float x;
-    float y;
-};
-
-struct EDGE {
-	std::vector<VERTICE> vertices;
-};
-
-struct LINE {
-    D2D1_POINT_2F startPoint;
-    D2D1_POINT_2F endPoint;
-};
-
-struct LineData {
-    bool isClosed;
-    int index;
-};
-
-struct LineGeometry {
-    std::vector<D2D1_POINT_2F> closedLoop;
-    COLORREF fillColor;
-};
-
-struct ACTION {
-    int Tool;
-    int Layer;
-    D2D1_RECT_F Position;
-	EDGE FreeForm;
-    D2D1_ELLIPSE Ellipse;
-    COLORREF FillColor;
-    COLORREF Color;
-	LINE Line;
-    int BrushSize;
-    bool IsFilled;
-    int mouseX;
-    int mouseY;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> undoBitmap;
-    std::vector<POINT> pixelsToFill;
-};
-
-struct PIXEL {
-    int x;
-    int y;
-
-    bool operator==(const PIXEL& other) const {
-        return x == other.x && y == other.y;
-    }
-};
-
-namespace std {
-    template <>
-    struct hash<PIXEL> {
-        size_t operator()(const PIXEL& p) const {
-            return std::hash<int>()(p.x) ^ (std::hash<int>()(p.y) << 1);
-        }
-    };
-}
-
-struct Layer {
-    Microsoft::WRL::ComPtr <ID2D1BitmapRenderTarget> pBitmapRenderTarget;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> pBitmap;
-    HBITMAP hBitmap;
-};
-
-struct LayerOrder {
-    int layerOrder;
-    int layerIndex;
-    std::vector<D2D1_COLOR_F> indexedColors;
-};
-
-struct LayerButton {
-    HWND button;
-    HBITMAP hBitmap;
-    bool isInitialPainted;
-};
-
 const int DX[] = { -1, 1, 0, 0 };
 const int DY[] = { 0, 0, -1, 1 };
-
-struct PairHash {
-    template <typename T1, typename T2>
-    std::size_t operator()(const std::pair<T1, T2>& p) const {
-        auto h1 = std::hash<T1>{}(p.first);  
-        auto h2 = std::hash<T2>{}(p.second); 
-        return h1 ^ (h2 << 1);               
-    }
-};
 
 std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
@@ -166,6 +80,9 @@ static int currentBrushSize = 0;
 static int prevLeft = -1;
 static int prevTop = -1;
 
+static int zoomFactorW = 1;
+static int zoomFactorH = 1;
+
 static bool isDrawingRectangle = false;
 static bool isDrawingEllipse = false;
 static bool isDrawingBrush = false;
@@ -191,6 +108,7 @@ unsigned int lastHexColor = UINT_MAX;
 /* MAIN */
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+
     switch (fdwReason) {
         case DLL_PROCESS_ATTACH: 
 
@@ -208,9 +126,14 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     return TRUE;
 }
 
-extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
-   
-    Actions.resize(10000);
+extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd, int pZoomFactorW, int pZoomFactorH) {
+    std::cout << "INITIALIZE" << std::endl;
+
+    SetProcessDPIAware();
+
+    zoomFactorW = pZoomFactorW;
+    zoomFactorH = pZoomFactorH;
+
     mainHWND = hWnd;
 
     D2D1_FACTORY_OPTIONS options = { D2D1_DEBUG_LEVEL_INFORMATION }; // Habilitar depuração
@@ -227,6 +150,12 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
         return factoryResult;
     }
 
+    InitializeDocument(hWnd);
+        
+    return S_OK;
+}
+
+HRESULT InitializeDocument(HWND hWnd) {
     RECT rc;
     GetClientRect(hWnd, &rc);
 
@@ -277,13 +206,18 @@ extern "C" __declspec(dllexport) HRESULT Initialize(HWND hWnd) {
         MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
         return renderResult;
     }
-      
-    AddLayer();
 
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Scale(zoomFactorW, zoomFactorH));
+    pRenderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+
+    return S_OK;
+}
+
+extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview() {
     RenderLayers();
 
     DrawLayerPreview(layerIndex);
-    
+
     return S_OK;
 }
 
@@ -292,6 +226,7 @@ extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd) {
 
     return S_OK;
 }
+
 
 /* HELPERS */
 
@@ -314,6 +249,331 @@ void CreateLogData(std::string fileName, std::string content) {
     return;
 }
 
+void SaveBinaryProject(const std::wstring& filename) {
+    std::cout << "SAVE BINARY CALLED" << std::endl;
+    std::ofstream out(filename, std::ios::binary);
+    if (!out.is_open()) {
+        CreateLogData("error.log", "Failed to open file for writing: " + std::string(filename.begin(), filename.end()));
+        return;
+    }
+
+    std::cout << "S-A" << std::endl;
+
+    int magic = 0x30444450; // 'PDD0'
+    int version = 1;
+    out.write((char*)&magic, sizeof(magic));
+    out.write((char*)&version, sizeof(version));
+    out.write((char*)&width, sizeof(width));
+    out.write((char*)&height, sizeof(height));
+    if (!out.good()) {
+        CreateLogData("error.log", "Error writing header data");
+        out.close();
+        return;
+    }
+
+    std::cout << "S-B" << std::endl;
+
+    // Save layersOrder
+    int layerOrderCount = static_cast<int>(layersOrder.size());
+    out.write((char*)&layerOrderCount, sizeof(layerOrderCount));
+    for (const auto& lo : layersOrder) {
+        out.write((char*)&lo.layerOrder, sizeof(lo.layerOrder));
+        out.write((char*)&lo.layerIndex, sizeof(lo.layerIndex));
+        int colorCount = static_cast<int>(lo.indexedColors.size());
+        out.write((char*)&colorCount, sizeof(colorCount));
+        out.write((char*)lo.indexedColors.data(), colorCount * sizeof(D2D1_COLOR_F));
+        if (!out.good()) {
+            CreateLogData("error.log", "Error writing layerOrder data");
+            out.close();
+            return;
+        }
+    }
+
+    std::cout << "S-C" << std::endl;
+
+    // Save actions
+    int actionCount = static_cast<int>(Actions.size());
+    out.write((char*)&actionCount, sizeof(actionCount));
+    for (const auto& a : Actions) {
+        std::cout << "S-CB" << std::endl;
+        std::cout << a.Color << std::endl;
+        std::cout << "S-CF" << std::endl;
+        std::cout << a.FillColor << std::endl;
+        out.write((char*)&a.Tool, sizeof(a.Tool));
+        out.write((char*)&a.Layer, sizeof(a.Layer));
+        out.write((char*)&a.Position, sizeof(a.Position));
+        out.write((char*)&a.Ellipse, sizeof(a.Ellipse));
+        out.write((char*)&a.FillColor, sizeof(a.FillColor));
+        out.write((char*)&a.Color, sizeof(a.Color));
+        out.write((char*)&a.BrushSize, sizeof(a.BrushSize));
+        out.write((char*)&a.IsFilled, sizeof(a.IsFilled));
+        out.write((char*)&a.mouseX, sizeof(a.mouseX));
+        out.write((char*)&a.mouseY, sizeof(a.mouseY));
+
+        int vertexCount = static_cast<int>(a.FreeForm.vertices.size());
+        out.write((char*)&vertexCount, sizeof(vertexCount));
+        if (vertexCount > 0) {
+            out.write((char*)a.FreeForm.vertices.data(), vertexCount * sizeof(VERTICE));
+        }
+
+        int pixelCount = static_cast<int>(a.pixelsToFill.size());
+        out.write((char*)&pixelCount, sizeof(pixelCount));
+        if (pixelCount > 0) {
+            out.write((char*)a.pixelsToFill.data(), pixelCount * sizeof(POINT));
+        }
+
+        if (!out.good()) {
+            CreateLogData("error.log", "Error writing action data");
+            out.close();
+            return;
+        }
+    }
+
+    std::cout << "S-D" << std::endl;
+
+    out.close();
+
+    std::cout << "S-E" << std::endl;
+}
+
+void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+    std::cout << "LOAD BINARY CALLED" << std::endl;
+
+    std::ifstream in(filename, std::ios::binary);
+
+    if (!in.is_open()) {
+        CreateLogData("error.log", "Failed to open file for reading: " + std::string(filename.begin(), filename.end()));
+        return;
+    }
+
+    Cleanup();
+    layerID = 0; // Reset layerID to start from 0, as in assembly
+    LayerButtons.clear(); // Ensure LayerButtons is empty
+
+    int magic = 0, version = 0;
+    in.read((char*)&magic, sizeof(magic));
+    in.read((char*)&version, sizeof(version));
+    if (magic != 0x30444450 || version != 1) {
+        CreateLogData("error.log", "Invalid file format or version");
+        in.close();
+        return;
+    }
+
+    in.read((char*)&width, sizeof(width));
+    in.read((char*)&height, sizeof(height));
+    if (!in.good() || width <= 0 || height <= 0 || width > 10000 || height > 10000) {
+        CreateLogData("error.log", "Invalid dimensions or read error");
+        in.close();
+        return;
+    }
+
+    // Load layersOrder
+    int layerOrderCount = 0;
+    in.read((char*)&layerOrderCount, sizeof(layerOrderCount));
+    if (!in.good() || layerOrderCount < 0 || layerOrderCount > 10000) {
+        CreateLogData("error.log", "Invalid layerOrder count: " + std::to_string(layerOrderCount));
+        in.close();
+        return;
+    }
+
+    layersOrder.clear();
+    for (int i = 0; i < layerOrderCount; ++i) {
+        LayerOrder lo = {};
+        int colorCount = 0;
+        in.read((char*)&lo.layerOrder, sizeof(lo.layerOrder));
+        in.read((char*)&lo.layerIndex, sizeof(lo.layerIndex));
+        in.read((char*)&colorCount, sizeof(colorCount));
+        if (!in.good() || colorCount < 0 || colorCount > width * height) {
+            CreateLogData("error.log", "Invalid color count for layerOrder " + std::to_string(i));
+            in.close();
+            return;
+        }
+        lo.indexedColors.resize(colorCount);
+        in.read((char*)lo.indexedColors.data(), colorCount * sizeof(D2D1_COLOR_F));
+        if (!in.good()) {
+            CreateLogData("error.log", "Error reading indexedColors for layerOrder " + std::to_string(i));
+            in.close();
+            return;
+        }
+        layersOrder.push_back(lo);
+    }
+
+    // Load actions
+    int actionCount = 0;
+    in.read((char*)&actionCount, sizeof(actionCount));
+    if (!in.good() || actionCount < 0 || actionCount > 1000000) {
+        CreateLogData("error.log", "Invalid action count: " + std::to_string(actionCount));
+        in.close();
+        return;
+    }
+
+    Actions.clear();
+    RedoActions.clear();
+    int maxLayer = -1;
+    for (int i = 0; i < actionCount; ++i) {
+        ACTION a = {};
+        int vertexCount = 0, pixelCount = 0;
+
+        in.read((char*)&a.Tool, sizeof(a.Tool));
+        in.read((char*)&a.Layer, sizeof(a.Layer));
+        if (!in.good() || a.Layer < 0 || a.Layer > 10000) {
+            CreateLogData("error.log", "Invalid layer index for action " + std::to_string(i) + ": " + std::to_string(a.Layer));
+            in.close();
+            Actions.clear();
+            return;
+        }
+        in.read((char*)&a.Position, sizeof(a.Position));
+        in.read((char*)&a.Ellipse, sizeof(a.Ellipse));
+        in.read((char*)&a.FillColor, sizeof(a.FillColor));
+        in.read((char*)&a.Color, sizeof(a.Color));
+        in.read((char*)&a.BrushSize, sizeof(a.BrushSize));
+        in.read((char*)&a.IsFilled, sizeof(a.IsFilled));
+        in.read((char*)&a.mouseX, sizeof(a.mouseX));
+        in.read((char*)&a.mouseY, sizeof(a.mouseY));
+
+        in.read((char*)&vertexCount, sizeof(vertexCount));
+        if (!in.good() || vertexCount < 0 || vertexCount > 1000000) {
+            CreateLogData("error.log", "Invalid vertex count for action " + std::to_string(i));
+            in.close();
+            Actions.clear();
+            return;
+        }
+        a.FreeForm.vertices.resize(vertexCount);
+        if (vertexCount > 0) {
+            in.read((char*)a.FreeForm.vertices.data(), vertexCount * sizeof(VERTICE));
+            if (!in.good()) {
+                CreateLogData("error.log", "Error reading vertices for action " + std::to_string(i));
+                in.close();
+                Actions.clear();
+                return;
+            }
+        }
+
+        in.read((char*)&pixelCount, sizeof(pixelCount));
+        if (!in.good() || pixelCount < 0 || pixelCount > width * height) {
+            CreateLogData("error.log", "Invalid pixel count for action " + std::to_string(i));
+            in.close();
+            Actions.clear();
+            return;
+        }
+        a.pixelsToFill.resize(pixelCount);
+        if (pixelCount > 0) {
+            in.read((char*)a.pixelsToFill.data(), pixelCount * sizeof(POINT));
+            if (!in.good()) {
+                CreateLogData("error.log", "Error reading pixels for action " + std::to_string(i));
+                in.close();
+                Actions.clear();
+                return;
+            }
+        }
+
+        Actions.push_back(a);
+        maxLayer = (std::max)(maxLayer, a.Layer);
+    }
+
+    in.close();
+
+    // Initialize rendering pipeline after layers and buttons are set up
+    HRESULT hr = Initialize(mainHWND, zoomFactorW, zoomFactorH);
+    if (FAILED(hr)) {
+        std::cout << "I-ERR" << std::endl;
+        CreateLogData("error.log", "Failed to initialize after layer setup: HRESULT " + std::to_string(hr));
+        layers.clear();
+        Actions.clear();
+        LayerButtons.clear();
+        return;
+    }
+
+    // Create layers and buttons
+    layers.clear();
+    layerIndex = 0;
+    for (int i = 0; i <= maxLayer; ++i) {
+        HRESULT hr = AddLayer();
+        if (FAILED(hr)) {
+            std::cout << "FAIL ADD LAYER" << std::endl;
+            CreateLogData("error.log", "Failed to add layer " + std::to_string(i) + ": HRESULT " + std::to_string(hr));
+            layers.clear();
+            Actions.clear();
+            LayerButtons.clear();
+            return;
+        }
+
+        // Create button for the layer (mimicking assembly WM_COMMAND wParam == 1001)
+        int yPos = btnHeight * layerID;
+        HWND button = CreateWindowEx(
+            0,                            // dwExStyle
+            szButtonClass,               // lpClassName
+            msgText,                     // lpWindowName
+            WS_CHILD | WS_VISIBLE | BS_BITMAP, // dwStyle
+            0,                           // x
+            yPos,                        // y
+            120,                         // nWidth
+            btnHeight,                   // nHeight
+            hWndLayer,                   // hWndParent
+            (HMENU)(intptr_t)layerID,    // hMenu (control ID)
+            hLayerInstance,              // hInstance
+            NULL                         // lpParam
+        );
+
+        if (button == NULL) {
+            std::cout << "FAIL BTN LAYER" << std::endl;
+            DWORD dwError = GetLastError();
+            wchar_t buffer[256];
+            FormatMessageW(
+                FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL,
+                dwError,
+                0,
+                buffer,
+                sizeof(buffer) / sizeof(wchar_t),
+                NULL
+            );
+
+            std::wcerr << L"CreateWindowEx failed. Error: " << dwError << L" - " << buffer << std::endl;
+            CreateLogData("error.log", "Failed to create button for layer " + std::to_string(layerID) + ": " + std::to_string(dwError));
+
+            layers.clear();
+            Actions.clear();
+            LayerButtons.clear();
+            return;
+        }
+
+        // Store button HWND in hLayerButtons
+        hLayerButtons[layerID] = button;
+
+        // Add button to LayerButtons
+        AddLayerButton(button);
+
+        if (i < maxLayer) {
+            layerID++;
+        }
+    }
+
+   InitializeLayerRenderPreview();
+   UpdateLayers();
+}
+
+extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathAnsi) {
+    int wlen = MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, nullptr, 0);
+    std::wstring wpath(wlen, L'\0');
+    MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, &wpath[0], wlen);
+
+    SaveBinaryProject(wpath);
+}
+
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+    std::cout << "LOAD" << std::endl;
+    int wlen = MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, nullptr, 0);
+    std::wstring wpath(wlen, L'\0');
+    MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, &wpath[0], wlen);
+
+    std::cout << "LOAD BINARY" << std::endl;
+
+    LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnHeight, hLayerButtons, *layerID, L"Button", msgText);
+
+    std::cout << "LOAD BINARY START" << std::endl;
+}
+
 D2D1_COLOR_F GetRGBColor(COLORREF color) {
     float r = (color & 0xFF) / 255.0f;         
     float g = ((color >> 8) & 0xFF) / 255.0f;  
@@ -334,8 +594,8 @@ RECT scalePointsToButton(int x, int y, int drawingAreaWidth, int drawingAreaHeig
     int offsetX = (buttonWidth - static_cast<int>(drawingAreaWidth * scale)) / 2;
     int offsetY = (buttonHeight - static_cast<int>(drawingAreaHeight * scale)) / 2;
 
-    x = static_cast<int>(x * scale) + offsetX;
-    y = static_cast<int>(y * scale) + offsetY;
+    x = static_cast<int>(x * scale * zoomFactorW) + offsetX;
+    y = static_cast<int>(y * scale * zoomFactorH) + offsetY;
 
     RECT rect = { x, y, 0, 0 };
     return rect;
@@ -496,6 +756,8 @@ extern "C" __declspec(dllexport) void handleMouseUp() {
     }
    
 	if (isDrawingBrush) {
+        std::cout << "CC" << std::endl;
+        std::cout << currentColor << std::endl;
 
         ACTION action;
         action.Tool = TBrush;
@@ -736,7 +998,7 @@ extern "C" __declspec(dllexport) void UpdateLayers() {
                     Actions[i].FreeForm.vertices[j].y + Actions[i].BrushSize * 0.5f  // Bottom
                 );
 
-                layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, pBrush);
+                layers[Actions[i].Layer].pBitmapRenderTarget->DrawRectangle(rect, pBrush);
 
                 pBrush->Release();
                 pBrush = nullptr;
@@ -934,7 +1196,21 @@ extern "C" __declspec(dllexport) void RenderLayers() {
     });
 
     for (size_t i = 0; i < sortedLayers.size(); ++i) {
+        const auto& layer = layers[sortedLayers[i].layerIndex];
+        if (layer.pBitmap) {
+            // Usa a interpolação apropriada para zoom de pixel art
+            pRenderTarget->DrawBitmap(
+                layer.pBitmap.Get(),
+                D2D1::RectF(0, 0, static_cast<FLOAT>(512), static_cast<FLOAT>(512)), // destino antes da escala
+                1.0f,
+                D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                D2D1::RectF(0, 0, 512 / zoomFactorW, 512 / zoomFactorH));
+        }
+    }
+
+    for (size_t i = 0; i < sortedLayers.size(); ++i) {
         if (layers[sortedLayers[i].layerIndex].pBitmap) {
+            
             pRenderTarget->DrawBitmap(layers[sortedLayers[i].layerIndex].pBitmap.Get());
         }
     }
@@ -1196,8 +1472,11 @@ extern "C" __declspec(dllexport) void EraserTool(int left, int top, int brushSiz
     target->EndDraw();
 }
 
-extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexColor, int brushSize) {
+/*extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexColor, int brushSize) {
     ComPtr<ID2D1SolidColorBrush> brush;
+
+    currentColor = hexColor;
+
     pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
     
     currentBrushSize = brushSize;
@@ -1263,6 +1542,90 @@ extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexC
 
     layers[layerIndex].pBitmapRenderTarget->EndDraw();
 
+    pRenderTarget->EndDraw();
+
+    prevLeft = left;
+    prevTop = top;
+}*/
+
+extern "C" __declspec(dllexport) void BrushTool(int left, int top, COLORREF hexColor, int brushSize, bool pixelMode = false) {    
+    ComPtr<ID2D1SolidColorBrush> brush;
+
+    currentColor = hexColor;
+    currentBrushSize = brushSize;
+    isDrawingBrush = true;
+
+    pRenderTarget->CreateSolidColorBrush(GetRGBColor(hexColor), &brush);
+
+    pRenderTarget->BeginDraw();
+    layers[layerIndex].pBitmapRenderTarget->BeginDraw();
+
+    if (pixelMode) {
+        // === PIXEL MODE: 1x1 rectangles only ===
+        // Avoid drawing duplicates
+        D2D1_RECT_F pixel = D2D1::RectF(
+            static_cast<float>(left),
+            static_cast<float>(top),
+            static_cast<float>(left + 1),
+            static_cast<float>(top + 1)
+        );
+
+        layers[layerIndex].pBitmapRenderTarget->FillRectangle(pixel, brush.Get());
+        Vertices.push_back(VERTICE{ static_cast<float>(left), static_cast<float>(top) });
+    }
+    else {
+
+        if (prevLeft == -1 && prevTop == -1) {
+            prevLeft = left;
+            prevTop = top;
+        }
+
+        // === NORMAL MODE (smooth brush stroke) ===
+        float dx = static_cast<float>(left - prevLeft);
+        float dy = static_cast<float>(top - prevTop);
+
+        float distance = sqrt(dx * dx + dy * dy);
+        float step = brushSize * 0.5f;
+
+        if (distance > step) {
+            float steps = distance / step;
+            float deltaX = dx / steps;
+            float deltaY = dy / steps;
+
+            for (float i = 0; i < steps; i++) {
+                float x = prevLeft + i * deltaX;
+                float y = prevTop + i * deltaY;
+
+                D2D1_RECT_F rect = D2D1::RectF(
+                    x - brushSize * 0.5f,
+                    y - brushSize * 0.5f,
+                    x + brushSize * 0.5f,
+                    y + brushSize * 0.5f
+                );
+
+                layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
+
+                if (x != -1 && y != -1) {
+                    Vertices.push_back(VERTICE{ x, y });
+                }
+            }
+        }
+
+        D2D1_RECT_F rect = D2D1::RectF(
+            left - brushSize * 0.5f,
+            top - brushSize * 0.5f,
+            left + brushSize * 0.5f,
+            top + brushSize * 0.5f
+        );
+
+        layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
+
+        if (left != -1 && top != -1) {
+            Vertices.push_back(VERTICE{ static_cast<float>(left), static_cast<float>(top) });
+        }
+    }
+
+    layers[layerIndex].pBitmapRenderTarget->EndDraw();
     pRenderTarget->EndDraw();
 
     prevLeft = left;
@@ -1420,8 +1783,8 @@ inline int Index(int x, int y, int width) {
     return y * width + x;
 }
 
-extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF fillColor, HWND hWnd, float tolerance) {
-    const int maxWidth = width;  // você deve definir width
+extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF fillColor, HWND hWnd) {
+    const int maxWidth = width; 
     const int maxHeight = height;
 
     std::vector<COLORREF> pixels = CaptureWindowPixels(hWnd, maxWidth, maxHeight);
@@ -1438,7 +1801,6 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
     const int dx[] = DX;
     const int dy[] = DY;
 
-    // Flood fill (fase 1 - coleta)
     while (!q.empty()) {
         POINT p = q.front(); q.pop();
         COLORREF current = pixels[Index(p.x, p.y, maxWidth)];
@@ -1461,12 +1823,9 @@ extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial
         }
     }
 
-    // Pintura paralela (fase 2)
     const int threadCount = std::thread::hardware_concurrency();
     std::vector<std::thread> threads;
     std::mutex drawMutex;
-
-    // Supõe que você tenha configurado fillBrush e layers[layerIndex].pBitmapRenderTarget
 
     layers[layerIndex].pBitmapRenderTarget->BeginDraw();
     
