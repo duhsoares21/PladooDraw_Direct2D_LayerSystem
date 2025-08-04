@@ -103,7 +103,7 @@ extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
 extern "C" __declspec(dllexport) void SetSelectedTool(int pselectedTool);
 
 extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathAnsi);
-extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 
 extern "C" __declspec(dllexport) void handleMouseUp();
 extern "C" __declspec(dllexport) void Undo();
@@ -121,7 +121,7 @@ extern "C" __declspec(dllexport) void DecreaseBrushSize(float sizeIncrement);
 
 extern "C" __declspec(dllexport) HRESULT AddLayer(bool fromFile);	
 extern "C" __declspec(dllexport) HRESULT RemoveLayer();
-extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
+extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 extern "C" __declspec(dllexport) int GetLayer();
 extern "C" __declspec(dllexport) void SetLayer(int index);
 extern "C" __declspec(dllexport) void ReorderLayerUp();

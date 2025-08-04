@@ -118,25 +118,30 @@ unsigned int lastHexColor = UINT_MAX;
 
 /* MAIN */
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {  
+    HRESULT hr; // Variable to store the return value of RoInitialize  
 
+    switch (fdwReason) {  
+        case DLL_PROCESS_ATTACH:  
+            hr = RoInitialize(RO_INIT_SINGLETHREADED);  
+            if (FAILED(hr)) {  
+                // Handle the error, for example, by logging or returning FALSE  
+                MessageBox(NULL, L"Failed to initialize Windows Runtime", L"Error", MB_OK | MB_ICONERROR);  
+                return FALSE;  
+            }  
+            break;  
 
-    switch (fdwReason) {
-        case DLL_PROCESS_ATTACH: 
-            RoInitialize(RO_INIT_SINGLETHREADED);
-            break;
+        case DLL_PROCESS_DETACH:  
+            CleanupSurfaceDial();  
+            Cleanup();  
+            break;  
 
-        case DLL_PROCESS_DETACH:
-            CleanupSurfaceDial();
-            Cleanup();
-            break;
+        case DLL_THREAD_ATTACH:  
+        case DLL_THREAD_DETACH:  
+            break;  
+    }  
 
-        case DLL_THREAD_ATTACH:
-        case DLL_THREAD_DETACH:
-            break;
-    }
-
-    return TRUE;
+    return TRUE;  
 }
 
 extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio) {
@@ -337,7 +342,7 @@ void SaveBinaryProject(const std::wstring& filename) {
     out.close();
 }
 
-void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
     std::ifstream in(filename, std::ios::binary);
 
     if (!in.is_open()) {
@@ -536,7 +541,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
             WS_CHILD | WS_VISIBLE | BS_BITMAP, // dwStyle
             0,                           // x
             yPos,                        // y
-            120,                         // nWidth
+            btnWidth,                         // nWidth
             btnHeight,                   // nHeight
             hWndLayer,                   // hWndParent
             (HMENU)(intptr_t)layerID,    // hMenu (control ID)
@@ -593,12 +598,12 @@ extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathA
     SaveBinaryProject(wpath);
 }
 
-extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
     int wlen = MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, nullptr, 0);
     std::wstring wpath(wlen, L'\0');
     MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, &wpath[0], wlen);
 
-    LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnHeight, hLayerButtons, *layerID, L"Button", msgText);
+    LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, *layerID, L"Button", msgText);
 }
 
 D2D1_COLOR_F GetRGBColor(COLORREF color) {
@@ -612,19 +617,25 @@ D2D1_COLOR_F GetRGBColor(COLORREF color) {
     return RGBColor;
 }
 
-RECT scalePointsToButton(int x, int y, int drawingAreaWidth, int drawingAreaHeight, int buttonWidth, int buttonHeight) {
+RECT scalePointsToButton(int x, int y, int drawingAreaWidth, int drawingAreaHeight, int buttonWidth, int buttonHeight, bool pixelMode, int pPixelSizeRatio) {
     float scaleX = buttonWidth / static_cast<float>(drawingAreaWidth);
     float scaleY = buttonHeight / static_cast<float>(drawingAreaHeight);
 
     float scale = min(scaleX, scaleY);
 
-    int offsetX = (buttonWidth - static_cast<int>(drawingAreaWidth * scale)) / 2;
-    int offsetY = (buttonHeight - static_cast<int>(drawingAreaHeight * scale)) / 2;
+    int offsetX = (buttonWidth - static_cast<int>(drawingAreaWidth * scale * zoomFactor)) / 2;
+    int offsetY = (buttonHeight - static_cast<int>(drawingAreaHeight * scale * zoomFactor)) / 2;
 
-    x = static_cast<int>(x * scale * pixelSizeRatio) + offsetX;
-    y = static_cast<int>(y * scale * pixelSizeRatio) + offsetY;
+    x = static_cast<int>(x * scale * zoomFactor) + offsetX;
+    y = static_cast<int>(y * scale * zoomFactor) + offsetY;
+    int scaledSize = static_cast<int>(pPixelSizeRatio * scale * zoomFactor);
 
     RECT rect = { x, y, 0, 0 };
+
+    if (pixelMode) {
+        rect = { x, y, x + scaledSize, y + scaledSize };
+    }
+
     return rect;
 }
 
@@ -1050,7 +1061,7 @@ extern "C" __declspec(dllexport) HRESULT RemoveLayer() {
     return S_OK;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
     for (auto layerButton : LayerButtons) {
         DestroyWindow(layerButton.button);
     }
@@ -1068,7 +1079,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer
             WS_CHILD | WS_VISIBLE | BS_BITMAP, // dwStyle
             0,                           // x
             yPos,                        // y
-            120,                         // nWidth
+            btnWidth,                          // nWidth
             btnHeight,                   // nHeight
             hWndLayer,                   // hWndParent
             (HMENU)(intptr_t)layerID,    // hMenu (control ID)
@@ -1285,7 +1296,7 @@ extern "C" __declspec(dllexport) void RenderLayers() {
 
 extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
 
-    /*HBITMAP hBitmap = LayerButtons[layerIndex].hBitmap;
+    HBITMAP hBitmap = LayerButtons[layerIndex].hBitmap;
 
     RECT WindowRC;
     GetClientRect(docHWND, &WindowRC);
@@ -1323,30 +1334,31 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
         if (Actions[i].Layer == layerIndex) {
             if (Actions[i].Tool == TBrush) {
 				for (int j = 0; j < Actions[i].FreeForm.vertices.size(); j++) {
+                    float scaledLeft = static_cast<float>(Actions[i].FreeForm.vertices[j].x);
+                    float scaledTop = static_cast<float>(Actions[i].FreeForm.vertices[j].y);
+
+                    float scaledBrushSize = static_cast<float>(Actions[i].BrushSize) / zoomFactor;
+                    float scaledPixelSizeRatio = static_cast<float>(pixelSizeRatio) / zoomFactor;
+
+                    int snappedLeft = static_cast<int>(scaledLeft / scaledPixelSizeRatio) * scaledPixelSizeRatio;
+                    int snappedTop = static_cast<int>(scaledTop / scaledPixelSizeRatio) * scaledPixelSizeRatio;
+
                     HBRUSH hBrush = CreateSolidBrush(Actions[i].Color);
-                    HPEN hPen = CreatePen(PS_SOLID, 1, Actions[i].Color);
+                    HPEN hPen = CreatePen(PS_SOLID, scaledBrushSize, Actions[i].Color);
 
                     SelectObject(compatibleDC, hBrush);
                     SelectObject(compatibleDC, hPen);
 
-                    RECT pXY = scalePointsToButton(Actions[i].FreeForm.vertices[j].x, Actions[i].FreeForm.vertices[j].y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-
-                    RECT rectPoint = { pXY.left - 1, pXY.top - 1, pXY.left + 1, pXY.top + 1 };
-
-                    Ellipse(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
-
-                    if (Actions[i].IsFilled) {
-
-                        RECT XY = scalePointsToButton(mouseLastClickPosition.x, mouseLastClickPosition.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-
-                        COLORREF clickedColor = GetPixel(compatibleDC, XY.left, XY.top);
-
-                        HBRUSH fillBrush = CreateSolidBrush(Actions[i].FillColor);
-                        SelectObject(compatibleDC, fillBrush);
-
-                        ExtFloodFill(compatibleDC, XY.left, XY.top, clickedColor, FLOODFILLSURFACE);
-
-                        DeleteObject(fillBrush);
+                    if (Actions[i].isPixelMode) {
+                        RECT pXY = scalePointsToButton(snappedLeft, snappedTop, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), true, pixelSizeRatio);
+                        RECT rectPoint = { pXY.left, pXY.top, pXY.right, pXY.bottom };
+                        Rectangle(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
+                    }
+                    else
+                    {
+                        RECT pXY = scalePointsToButton(Actions[i].FreeForm.vertices[j].x, Actions[i].FreeForm.vertices[j].y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
+                        RECT rectPoint = { pXY.left - 1, pXY.top - 1, pXY.left + 1, pXY.top + 1 };
+                        Ellipse(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
                     }
 
                     DeleteObject(hBrush);
@@ -1360,8 +1372,8 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
                 SelectObject(compatibleDC, hBrush);
                 SelectObject(compatibleDC, hPen);
 
-                RECT pXY = scalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-                RECT pWZ= scalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
+                RECT pXY = scalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
+                RECT pWZ= scalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
 
                 RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
                 
@@ -1377,8 +1389,8 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
                 SelectObject(compatibleDC, hBrush);
                 SelectObject(compatibleDC, hPen);
 
-                RECT pXY = scalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-                RECT pWZ = scalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
+                RECT pXY = scalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
+                RECT pWZ = scalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
 
                 RECT rectPoint = { pXY.left, pXY.top, pWZ.left, pWZ.top };
                 
@@ -1394,8 +1406,8 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
                 SelectObject(compatibleDC, hBrush);
                 SelectObject(compatibleDC, hPen);
 
-                RECT pXY = scalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-                RECT pWZ = scalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
+                RECT pXY = scalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
+                RECT pWZ = scalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
 
                 RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
 
@@ -1409,8 +1421,8 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
 
                 SelectObject(compatibleDC, hPen);
 
-                RECT pXY = scalePointsToButton(Actions[i].Line.startPoint.x, Actions[i].Line.startPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
-                RECT pWZ = scalePointsToButton(Actions[i].Line.endPoint.x, Actions[i].Line.endPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top));
+                RECT pXY = scalePointsToButton(Actions[i].Line.startPoint.x, Actions[i].Line.startPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
+                RECT pWZ = scalePointsToButton(Actions[i].Line.endPoint.x, Actions[i].Line.endPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
 
                 RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
 
@@ -1426,7 +1438,9 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
                     (WindowRC.right - WindowRC.left),
                     (WindowRC.bottom - WindowRC.top),
                     (rc.right - rc.left),
-                    (rc.bottom - rc.top)
+                    (rc.bottom - rc.top),
+                    false,
+                    1
                 );
 
                 COLORREF clickedColor = GetPixel(compatibleDC, XY.left, XY.top);
@@ -1444,7 +1458,7 @@ extern "C" __declspec(dllexport) void DrawLayerPreview(int currentLayer) {
     DeleteDC(compatibleDC);
     ReleaseDC(LayerButtons[layerIndex].button, hdc);
 
-    RedrawWindow(layersHWND, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);*/
+    RedrawWindow(layersHWND, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
 }
 
 /*FLOOD FILL*/
