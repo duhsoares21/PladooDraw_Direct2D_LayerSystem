@@ -570,6 +570,10 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
             LayerButtons.clear();
             return;
         }
+
+        ShowWindow(button, SW_SHOWDEFAULT);
+        UpdateWindow(button);
+
         // Store button HWND in hLayerButtons
         hLayerButtons[layerID] = button;
 
