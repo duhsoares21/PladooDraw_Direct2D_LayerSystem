@@ -1,6 +1,9 @@
 // SurfaceDial.cpp
 #include "pch.h"
+#include "Constants.h"
 #include "SurfaceDial.h"
+#include "Tools.h"
+#include "Transforms.h"
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -14,10 +17,10 @@
 #include <iostream>
 
 using namespace winrt;
-using namespace Windows::UI::Input;
-using namespace Windows::UI::Input::Core;
-using namespace Windows::Foundation;
-using namespace Windows::System;
+using namespace winrt::Windows::UI::Input;
+using namespace winrt::Windows::UI::Input::Core;
+using namespace winrt::Windows::Foundation;
+using namespace winrt::Windows::System;
 
 static RadialController g_controller{ nullptr };
 static event_token     g_rotationToken{};
@@ -106,6 +109,44 @@ void InitializeSurfaceDial(HWND hwnd)
 
         OnDialButtonClick(menuIndex);  
     });  
+}
+
+/* SURFACE DIAL */
+
+void OnDialRotation(int menuIndex, int direction, float rotationDegrees) {
+    if (direction == 0) return;
+
+    if (menuIndex == 0) {
+        if (direction > 0) {
+            TZoomIn(rotationDegrees * 0.5f);
+        }
+        else {
+            TZoomOut((rotationDegrees * 0.5f) * -1.0f);
+        }
+    }
+    else if (menuIndex == 1) {
+        if (direction > 0) {
+            TIncreaseBrushSize(rotationDegrees * 0.5f);
+        }
+        else {
+            TDecreaseBrushSize((rotationDegrees * 0.5f) * -1.0f);
+        }
+    }
+}
+
+void OnDialButtonClick(int menuIndex) {
+    if (menuIndex == 0) {
+        zoomFactor = 1.0f;
+        TZoom();
+    }
+    else if (menuIndex == 1) {
+        if (selectedTool == TBrush) {
+            currentBrushSize = defaultBrushSize;
+        }
+        else if (selectedTool == TEraser) {
+            currentEraserSize = defaultEraserSize;
+        }
+    }
 }
 
 void CleanupSurfaceDial()
