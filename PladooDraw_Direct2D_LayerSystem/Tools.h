@@ -11,9 +11,6 @@ enum Tools
 	TMove
 };
 
-extern void THandleMouseUp();
-extern void TUndo();
-extern void TRedo();
 extern void TEraserTool(int left, int top);
 extern void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixelSizeRatio);
 extern void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexColor);

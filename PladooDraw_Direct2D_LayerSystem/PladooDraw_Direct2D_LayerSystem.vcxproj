@@ -168,6 +168,7 @@
     <ClInclude Include="Structs.h" />
     <ClInclude Include="SurfaceDial.h" />
     <ClInclude Include="Tools.h" />
+    <ClInclude Include="ToolsAux.h" />
     <ClInclude Include="Transforms.h" />
   </ItemGroup>
   <ItemGroup>
@@ -183,6 +184,7 @@
     </ClCompile>
     <ClCompile Include="SurfaceDial.cpp" />
     <ClCompile Include="Tools.cpp" />
+    <ClCompile Include="ToolsAux.cpp" />
     <ClCompile Include="Transforms.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

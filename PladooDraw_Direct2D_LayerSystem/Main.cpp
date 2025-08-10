@@ -6,6 +6,7 @@
 #include "Layers.h"
 #include "SurfaceDial.h"
 #include "Tools.h"
+#include "ToolsAux.h"
 #include "Transforms.h"
 
 /* MAIN */
