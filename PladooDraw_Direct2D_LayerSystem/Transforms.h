@@ -1,12 +1,12 @@
 #pragma once
 
-extern "C" float TGetZoomFactor();
-extern "C" void TZoomIn_Default();
-extern "C" void TZoomOut_Default();
-extern "C" void TZoomIn(float zoomRatio);
-extern "C" void TZoomOut(float zoomRatio);
-extern "C" void TZoom();
-extern "C" void TIncreaseBrushSize_Default();
-extern "C" void TDecreaseBrushSize_Default();
-extern "C" void TIncreaseBrushSize(float sizeIncrement);
-extern "C" void TDecreaseBrushSize(float sizeIncrement);
+extern float TGetZoomFactor();
+extern void TZoomIn_Default();
+extern void TZoomOut_Default();
+extern void TZoomIn(float zoomRatio);
+extern void TZoomOut(float zoomRatio);
+extern void TZoom();
+extern void TIncreaseBrushSize_Default();
+extern void TDecreaseBrushSize_Default();
+extern void TIncreaseBrushSize(float sizeIncrement);
+extern void TDecreaseBrushSize(float sizeIncrement);
