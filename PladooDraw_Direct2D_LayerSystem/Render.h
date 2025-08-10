@@ -1,0 +1,7 @@
+#pragma once
+#include "Base.h"
+
+extern HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio);
+extern HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
+extern HRESULT TInitializeLayerRenderPreview();
+extern HRESULT TInitializeLayers(HWND hWnd);

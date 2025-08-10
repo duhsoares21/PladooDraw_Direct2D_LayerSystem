@@ -6,7 +6,7 @@ template <class T> void SafeRelease(T** ppT);
 extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton);
 
 extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio);
-HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
+extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
 extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview();
 extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
 
@@ -15,8 +15,7 @@ extern "C" __declspec(dllexport) void SetSelectedTool(int pselectedTool);
 extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathAnsi);
 extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 
-extern std::vector<COLORREF> CaptureWindowPixels(HWND hWnd, int width, int height);
-void CreateLogData(std::string fileName, std::string content);
+extern "C" __declspec(dllexport) void CreateLogData(std::string fileName, std::string content);
 
 extern "C" __declspec(dllexport) void handleMouseUp();
 extern "C" __declspec(dllexport) void Undo();

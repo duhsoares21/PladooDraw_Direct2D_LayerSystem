@@ -13,7 +13,7 @@ void SaveBinaryProject(const std::wstring& filename) {
     }
 
     int magic = 0x30444450; // 'PDD0'
-    int version = 2;
+    int version = 1;
     out.write((char*)&magic, sizeof(magic));
     out.write((char*)&version, sizeof(version));
     out.write((char*)&width, sizeof(width));
@@ -91,7 +91,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     int magic = 0, version = 0;
     in.read((char*)&magic, sizeof(magic));
     in.read((char*)&version, sizeof(version));
-    if (magic != 0x30444450 || version < 1 || version > 2) {
+    if (magic != 0x30444450 || version < 1 || version > 1) {
         HCreateLogData("error.log", "Invalid file format or version");
         in.close();
         return;
@@ -105,29 +105,12 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         in.close();
         return;
     }
-
-    if (version == 1) {
-        int zoomFactorW = -1;
-        int zoomFactorH = -1;
-        in.read((char*)&zoomFactorW, sizeof(zoomFactorW));
-        in.read((char*)&zoomFactorH, sizeof(zoomFactorH));
-
-        if (!in.good() || zoomFactorW <= 0 || zoomFactorW > 10000 || zoomFactorH <= 0 || zoomFactorH > 10000) {
-            HCreateLogData("error.log", "Invalid zoomFactorH in version 1");
-            in.close();
-            return;
-        }
-
-        pixelSizeRatio = zoomFactorW;
+       
+    in.read((char*)&pixelSizeRatio, sizeof(pixelSizeRatio));
+    if (!in.good()) {
+        pixelSizeRatio = -1;
     }
-    else if (version >= 2) {
-        in.read((char*)&pixelSizeRatio, sizeof(pixelSizeRatio));
-        if (!in.good()) {
-            pixelSizeRatio = -1;
-        }
-    }
-
-    // Load layersOrder
+    
     int layerOrderCount = 0;
     in.read((char*)&layerOrderCount, sizeof(layerOrderCount));
     if (!in.good() || layerOrderCount < 0 || layerOrderCount > 10000) {
