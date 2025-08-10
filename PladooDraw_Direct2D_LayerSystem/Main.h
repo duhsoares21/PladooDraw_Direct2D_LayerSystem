@@ -2,9 +2,6 @@
 #include "Base.h"
 #include "Structs.h"
 
-template <class T> void SafeRelease(T** ppT);
-extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton);
-
 extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio);
 extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
 extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview();
@@ -31,6 +28,7 @@ extern "C" __declspec(dllexport) void DecreaseBrushSize_Default();
 extern "C" __declspec(dllexport) void IncreaseBrushSize(float sizeIncrement);
 extern "C" __declspec(dllexport) void DecreaseBrushSize(float sizeIncrement);
 
+extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton);
 extern "C" __declspec(dllexport) HRESULT AddLayer(bool fromFile);	
 extern "C" __declspec(dllexport) HRESULT RemoveLayer();
 extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
