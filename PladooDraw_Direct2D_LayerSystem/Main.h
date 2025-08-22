@@ -10,7 +10,7 @@ extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
 extern "C" __declspec(dllexport) void SetSelectedTool(int pselectedTool);
 
 extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathAnsi);
-extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(LPCWSTR wpath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 
 extern "C" __declspec(dllexport) void CreateLogData(std::string fileName, std::string content);
 

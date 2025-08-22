@@ -69,11 +69,7 @@ void __stdcall SaveProjectDll(const char* pathAnsi) {
     SaveBinaryProject(wpath);
 }
 
-void __stdcall LoadProjectDll(const char* pathAnsi, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
-    int wlen = MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, nullptr, 0);
-    std::wstring wpath(wlen, L'\0');
-    MultiByteToWideChar(CP_ACP, 0, pathAnsi, -1, &wpath[0], wlen);
-
+void __stdcall LoadProjectDll(LPCWSTR wpath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
     LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, *layerID, L"Button", msgText);
 }
 
