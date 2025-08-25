@@ -160,14 +160,6 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
                 layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
                 layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush.Get());
 
-                /*D2D1_ELLIPSE ellipse = D2D1::Ellipse(
-                    D2D1::Point2F(x - scaledBrushSize, y - scaledBrushSize),
-                    scaledBrushSize / 2.0f,
-                    scaledBrushSize / 2.0f
-                );
-
-                layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush.Get());*/
-
                 if (x != -1 && y != -1) {
                     Vertices.emplace_back(VERTICE{ x, y });
                 }

@@ -12,6 +12,7 @@ int TLayersCount() {
 }
 
 HRESULT TAddLayer(bool fromFile = false) {
+
     ComPtr<ID2D1BitmapRenderTarget> pBitmapRenderTarget;
 
     D2D1_SIZE_F size = pRenderTarget->GetSize();
@@ -66,6 +67,7 @@ void TAddLayerButton(HWND layerButton) {
 }
 
 HRESULT TRemoveLayer() {
+
     layers.erase(layers.begin() + layerIndex);
 
     for (auto it = layersOrder.begin(); it != layersOrder.end(); ++it) {
@@ -94,6 +96,8 @@ HRESULT TRemoveLayer() {
         if (a.Layer > layerIndex)
             a.Layer--; // shift left
     }
+
+    if (layers.size() == 0) TAddLayer();
 
     return S_OK;
 }
@@ -223,10 +227,11 @@ void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target) {
     }
 
     case TBrush: {
-        ID2D1SolidColorBrush* pBrush = nullptr;
+        ComPtr<ID2D1SolidColorBrush> brush;
         for (const auto& vertex : action.FreeForm.vertices) {
+
             D2D1_COLOR_F color = HGetRGBColor(action.Color);
-            target->CreateSolidColorBrush(color, &pBrush);
+            target->CreateSolidColorBrush(color, &brush);
 
             if (action.isPixelMode) {
                 int snappedLeft = static_cast<int>(vertex.x / pixelSizeRatio) * pixelSizeRatio;
@@ -239,22 +244,24 @@ void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target) {
                     static_cast<float>(snappedTop + pixelSizeRatio)
                 );
 
-                target->FillRectangle(pixel, pBrush);
-            }
-            else {
+                target->FillRectangle(pixel, brush.Get());
+            } else {
+
+                float scaledLeft = static_cast<float>(vertex.x) / zoomFactor;
+                float scaledTop = static_cast<float>(vertex.y) / zoomFactor;
+                float scaledBrushSize = static_cast<float>(currentBrushSize) / zoomFactor;
+                float scaledPixelSizeRatio = static_cast<float>(pixelSizeRatio) / zoomFactor;
+
                 D2D1_RECT_F rect = D2D1::RectF(
-                    vertex.x - vertex.BrushSize * 0.5f,
-                    vertex.y - vertex.BrushSize * 0.5f,
-                    vertex.x + vertex.BrushSize * 0.5f,
-                    vertex.y + vertex.BrushSize * 0.5f
+                    scaledLeft - scaledBrushSize * 0.5f,
+                    scaledTop - scaledBrushSize * 0.5f,
+                    scaledLeft + scaledBrushSize * 0.5f,
+                    scaledTop + scaledBrushSize * 0.5f
                 );
 
-                target->FillRectangle(rect, pBrush);
-                target->DrawRectangle(rect, pBrush);
+                layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
+                layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush.Get());
             }
-
-            pBrush->Release();
-            pBrush = nullptr;
         }
         break;
     }
@@ -276,7 +283,9 @@ void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target) {
 
 void TUpdateLayers(int layerIndexTarget = -1) {
 
-    if (layerIndex < 0 || layerIndex >= layers.size()) return;
+    if (layerIndex < 0 || layerIndex >= layers.size()) {
+        layerIndex = 0;
+    }
 
     if (layerIndexTarget == -1) {
         layerIndexTarget = layerIndex;

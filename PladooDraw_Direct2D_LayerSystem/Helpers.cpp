@@ -71,7 +71,7 @@ void HCleanup() {
     SafeRelease(&transparentBrush);
 
     for (int i = 0; i < layers.size(); i++) {
-        layers[i].pBitmap.Reset(); // Automatically releases the bitmap
+        layers[i].pBitmap.Reset();
     }
 
     layers.clear();

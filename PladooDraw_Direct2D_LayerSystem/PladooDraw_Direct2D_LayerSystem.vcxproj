@@ -76,7 +76,7 @@
     <OutDir>..\..\PladooDraw\Debug</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <OutDir>..\..\PladooDraw\PladooDraw</OutDir>
+    <OutDir>..\..\PladooDraw\Release</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

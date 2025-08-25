@@ -77,6 +77,18 @@ void SaveBinaryProject(const std::wstring& filename) {
 }
 
 void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+
+    layers.clear();
+    layersOrder.clear();
+    Actions.clear();
+    RedoActions.clear();
+
+    for (auto layerButton : LayerButtons) {
+        DestroyWindow(layerButton.button);
+    }
+
+    LayerButtons.clear();
+
     std::ifstream in(filename, std::ios::binary);
 
     if (!in.is_open()) {
@@ -85,8 +97,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     }
 
     HCleanup();
-    layerID = 0; // Reset layerID to start from 0, as in assembly
-    LayerButtons.clear(); // Ensure LayerButtons is empty
+    layerID = 0;
 
     int magic = 0, version = 0;
     in.read((char*)&magic, sizeof(magic));
@@ -133,7 +144,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         layersOrder.push_back(lo);
     }
 
-    // Load actions
     int actionCount = 0;
     in.read((char*)&actionCount, sizeof(actionCount));
 
@@ -143,8 +153,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         return;
     }
 
-    Actions.clear();
-    RedoActions.clear();
     int maxLayer = -1;
 
     for (int i = 0; i < actionCount; ++i) {
@@ -215,7 +223,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
 
     in.close();
 
-    // Initialize rendering pipeline after layers and buttons are set up
     HRESULT hr = Initialize(mainHWND, docHWND, width, height, pixelSizeRatio);
 
     if (FAILED(hr)) {
@@ -226,7 +233,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         return;
     }
 
-    // Create layers and buttons
     layers.clear();
     layerIndex = 0;
     for (int i = 0; i <= maxLayer; ++i) {
@@ -239,7 +245,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
             return;
         }
 
-        // Create button for the layer (mimicking assembly WM_COMMAND wParam == 1001)
         int yPos = btnHeight * layerID;
         HWND button = CreateWindowEx(
             0,                            // dwExStyle
