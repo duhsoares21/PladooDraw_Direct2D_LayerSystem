@@ -24,13 +24,13 @@ HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int 
     }
 
     TInitializeDocument(pdocHWND, pWidth, pHeight, pPixelSizeRatio);
+    TInitializeWrite();
     InitializeSurfaceDial(pmainHWND);
 
     return S_OK;
 }
 
 HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio) {
-
     RECT rc;
     GetClientRect(hWnd, &rc);
 
@@ -42,52 +42,121 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
         height = pHeight;
     }
 
+    logicalWidth = static_cast<float>(width);
+    logicalHeight = static_cast<float>(height);
+
     if (pPixelSizeRatio != -1) {
         pixelSizeRatio = pPixelSizeRatio;
     }
 
-    D2D1_SIZE_U size = D2D1::SizeU(width, height);
-    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(hWnd, size);
+    if (!IsWindow(hWnd)) {
+        return E_INVALIDARG;
+    }
 
-    D2D1_RENDER_TARGET_PROPERTIES attempts[] = {
-        D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_HARDWARE,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-            0, 0,
-            D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE
-        ),
-        D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-            0, 0,
-            D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE
-        )
-    };
+    if (width <= 0 || height <= 0) {
+        return E_INVALIDARG;
+    }
 
-    HRESULT renderResult = E_FAIL;
-    for (const auto& props : attempts) {
-        renderResult = pD2DFactory->CreateHwndRenderTarget(props, hwndProps, &pRenderTarget);
-        if (SUCCEEDED(renderResult)) {
-            break;
+    UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    #ifdef _DEBUG
+        creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
+    #endif
+
+    D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
+    D3D_FEATURE_LEVEL featureLevel;
+    HRESULT hr = D3D11CreateDevice(
+        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, creationFlags,
+        featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
+        &g_pD3DDevice, &featureLevel, &g_pD3DContext
+    );
+
+    if (FAILED(hr)) {
+        hr = D3D11CreateDevice(
+            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, creationFlags,
+            featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
+            &g_pD3DDevice, &featureLevel, &g_pD3DContext
+        );
+        if (FAILED(hr)) {
+            MessageBox(hWnd, L"Failed to create D3D11 device", L"Error", MB_OK);
+            return hr;
         }
     }
 
-    if (FAILED(renderResult)) {
-        wchar_t errorMessage[512];
-        FormatMessage(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            nullptr,
-            renderResult,
-            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            errorMessage,
-            (sizeof(errorMessage) / sizeof(wchar_t)),
-            nullptr
-        );
+    // Get DXGI device
+    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
+    hr = g_pD3DDevice.As(&dxgiDevice);
+    if (FAILED(hr)) {
+        return hr;
+    }
 
-        wchar_t finalMessage[1024];
-        swprintf_s(finalMessage, L"Erro ao criar hWndRenderTarget\nCódigo: 0x%08X\nMensagem: %s", renderResult, errorMessage);
-        MessageBox(hWnd, finalMessage, L"Erro", MB_OK | MB_ICONERROR);
-        return renderResult;
+    // Create D2D1 device
+    hr = pD2DFactory->CreateDevice(dxgiDevice.Get(), &g_pD2DDevice);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pRenderTarget);
+
+    if (FAILED(hr)) {
+        _com_error err(hr);
+        std::wcout << L"Error: " << err.ErrorMessage() << L" (0x"
+            << std::hex << hr << L")" << std::endl;
+        return hr;
+    }
+
+    // Create DXGI factory
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    hr = dxgiDevice->GetAdapter(&adapter);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
+    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
+
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
+    swapDesc.Width = width;
+    swapDesc.Height = height;
+    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    swapDesc.SampleDesc.Count = 1;
+    swapDesc.SampleDesc.Quality = 0;
+    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapDesc.BufferCount = 2;
+    swapDesc.Scaling = DXGI_SCALING_STRETCH;
+    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    swapDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    swapDesc.Flags = 0;
+
+    hr = dxgiFactory->CreateSwapChainForHwnd(g_pD3DDevice.Get(), hWnd, &swapDesc, nullptr, nullptr, &g_pSwapChain);
+    
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = dxgiFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    if (!g_pSwapChain) {
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
+HRESULT TInitializeWrite() {
+    HRESULT hr = DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(pDWriteFactory.GetAddressOf())
+    );
+    if (FAILED(hr)) {
+        MessageBox(NULL, L"Failed to create DirectWrite factory", L"Error", MB_OK);
     }
 
     return S_OK;

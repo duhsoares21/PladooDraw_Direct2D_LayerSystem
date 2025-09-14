@@ -11,7 +11,7 @@ extern int TGetLayer();
 extern void TSetLayer(int index);
 extern void TReorderLayerUp();
 extern void TReorderLayerDown();
-extern void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target);
+extern void TRenderActionToTarget(const ACTION& action);
 extern void TUpdateLayers(int layerIndexTarget);
 extern void TRenderLayers();
 extern void TDrawLayerPreview(int currentLayer);

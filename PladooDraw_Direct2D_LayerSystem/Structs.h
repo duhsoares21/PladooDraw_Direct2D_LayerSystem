@@ -30,12 +30,12 @@ struct ACTION {
     bool isPixelMode;
     int mouseX;
     int mouseY;
+    const WCHAR *Text;
     std::vector<POINT> pixelsToFill;
 };
 
 struct Layer {
-    Microsoft::WRL::ComPtr <ID2D1BitmapRenderTarget> pBitmapRenderTarget;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> pBitmap;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
 };
 
 struct LayerOrder {
@@ -73,8 +73,8 @@ namespace std {
 
 struct LayerButton {
     HWND button;
-    HBITMAP hBitmap;
-    bool isInitialPainted;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
 };
 
 struct PairHash {

@@ -64,14 +64,23 @@ template <class T> void SafeRelease(T** ppT)
     }  
 }
 
-void HCleanup() {
-    SafeRelease(&pBrush);
-    SafeRelease(&pRenderTarget);
-    SafeRelease(pD2DFactory.GetAddressOf());
-    SafeRelease(&transparentBrush);
+void HPrintHResultError(HRESULT hr) {
+    _com_error err(hr);
+    LPCTSTR errMsg = err.ErrorMessage();
+    std::wcout << "Erro HRESULT: 0x" << std::hex << hr << " - " << errMsg << std::endl;
+}
 
-    for (int i = 0; i < layers.size(); i++) {
-        layers[i].pBitmap.Reset();
+void HCleanup() {
+    SafeRelease(pBrush.GetAddressOf());
+    SafeRelease(&pRenderTarget);
+    SafeRelease(hWndLayerRenderTarget.GetAddressOf());
+    SafeRelease(&pRenderTargetLayer);
+    SafeRelease(pD2DFactory.GetAddressOf());
+    SafeRelease(pD2DTargetBitmap.GetAddressOf());
+    SafeRelease(pDWriteFactory.GetAddressOf());
+
+    for (auto& layer : layers) {
+        layer.pBitmap.Reset();
     }
 
     layers.clear();
@@ -79,4 +88,9 @@ void HCleanup() {
     Actions.clear();
     RedoActions.clear();
     LayerButtons.clear();
+
+    // Release D3D resources
+    g_pSwapChain.Reset();
+    g_pD2DDevice.Reset();
+    g_pD3DContext.Reset();
 }

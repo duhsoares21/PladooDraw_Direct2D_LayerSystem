@@ -4,6 +4,7 @@
 #include "Helpers.h"
 #include "Layers.h"
 #include "Main.h"
+#include "Tools.h"
 
 void SaveBinaryProject(const std::wstring& filename) {
     std::ofstream out(filename, std::ios::binary);
@@ -45,6 +46,9 @@ void SaveBinaryProject(const std::wstring& filename) {
         out.write((char*)&a.Tool, sizeof(a.Tool));
         out.write((char*)&a.Layer, sizeof(a.Layer));
         out.write((char*)&a.Position, sizeof(a.Position));
+        if (a.Tool == TWrite) {
+            out.write(reinterpret_cast<const char*>(a.Text), sizeof(a.Text));
+        }
         out.write((char*)&a.Ellipse, sizeof(a.Ellipse));
         out.write((char*)&a.FillColor, sizeof(a.FillColor));
         out.write((char*)&a.Color, sizeof(a.Color));
@@ -102,6 +106,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     int magic = 0, version = 0;
     in.read((char*)&magic, sizeof(magic));
     in.read((char*)&version, sizeof(version));
+
     if (magic != 0x30444450 || version < 1 || version > 1) {
         HCreateLogData("error.log", "Invalid file format or version");
         in.close();
@@ -116,7 +121,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         in.close();
         return;
     }
-       
+
     in.read((char*)&pixelSizeRatio, sizeof(pixelSizeRatio));
     if (!in.good()) {
         pixelSizeRatio = -1;
@@ -124,6 +129,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     
     int layerOrderCount = 0;
     in.read((char*)&layerOrderCount, sizeof(layerOrderCount));
+
     if (!in.good() || layerOrderCount < 0 || layerOrderCount > 10000) {
         HCreateLogData("error.log", "Invalid layerOrder count: " + std::to_string(layerOrderCount));
         in.close();
@@ -169,6 +175,9 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         }
 
         in.read((char*)&a.Position, sizeof(a.Position));
+        if (a.Tool == TWrite) {
+            in.read(reinterpret_cast<char*>(&a.Text), sizeof(a.Text));
+        }
         in.read((char*)&a.Ellipse, sizeof(a.Ellipse));
         in.read((char*)&a.FillColor, sizeof(a.FillColor));
         in.read((char*)&a.Color, sizeof(a.Color));
@@ -222,7 +231,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     }
 
     in.close();
-
     HRESULT hr = Initialize(mainHWND, docHWND, width, height, pixelSizeRatio);
 
     if (FAILED(hr)) {
@@ -232,9 +240,10 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         LayerButtons.clear();
         return;
     }
-
+    
     layers.clear();
     layerIndex = 0;
+
     for (int i = 0; i <= maxLayer; ++i) {
         HRESULT hr = TAddLayer(true);
         if (FAILED(hr)) {
@@ -274,7 +283,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
                 NULL
             );
 
-            std::wcerr << L"CreateWindowEx failed. Error: " << dwError << L" - " << buffer << std::endl;
             HCreateLogData("error.log", "Failed to create button for layer " + std::to_string(layerID) + ": " + std::to_string(dwError));
 
             layers.clear();

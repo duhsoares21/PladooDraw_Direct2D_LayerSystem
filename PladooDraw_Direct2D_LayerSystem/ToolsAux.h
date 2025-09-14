@@ -6,4 +6,4 @@ extern void THandleMouseUp();
 extern void TUndo();
 extern void TRedo();
 extern bool HitTestAction(const ACTION& action, float x, float y);
-extern std::vector<COLORREF> CaptureWindowPixels(HWND hWnd, int width, int height);
+extern std::vector<COLORREF> CaptureCanvasPixels();

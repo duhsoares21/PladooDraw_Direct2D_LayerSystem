@@ -4,6 +4,7 @@
 #include "Helpers.h"
 #include "Tools.h"
 #include "Layers.h"
+#include "Render.h"
 
 /* LAYERS */
 
@@ -12,30 +13,40 @@ int TLayersCount() {
 }
 
 HRESULT TAddLayer(bool fromFile = false) {
+    // Use logical size (not physical/zoomed size from pRenderTarget)
+    D2D1_SIZE_F size = D2D1::SizeF(logicalWidth, logicalHeight);
 
-    ComPtr<ID2D1BitmapRenderTarget> pBitmapRenderTarget;
+    FLOAT dpiX, dpiY;
+    pRenderTarget->GetDpi(&dpiX, &dpiY);
 
-    D2D1_SIZE_F size = pRenderTarget->GetSize();
+    // Create offscreen bitmap (targetable)
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
+    D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX, dpiY
+    );
 
-    HRESULT renderTargetCreated = pRenderTarget->CreateCompatibleRenderTarget(
-        D2D1::SizeF(size.width, size.height), &pBitmapRenderTarget);
+    HRESULT hr = pRenderTarget->CreateBitmap(
+        D2D1::SizeU(static_cast<UINT32>(size.width), static_cast<UINT32>(size.height)),
+        nullptr, 0, &bp, &pBitmap
+    );
 
-    if (FAILED(renderTargetCreated)) {
-        MessageBox(NULL, L"Erro ao criar BitmapRenderTarget", L"Erro", MB_OK);
-        return renderTargetCreated;
+    if (FAILED(hr)) {
+        MessageBox(NULL, L"Failed to create bitmap", L"Error", MB_OK);
+        return hr;
     }
 
-    ComPtr<ID2D1Bitmap> pBitmap;
-    pBitmapRenderTarget->GetBitmap(&pBitmap);
+    pRenderTarget->SetTarget(pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0)); // fully transparent
+    pRenderTarget->EndDraw();
 
-    pBitmapRenderTarget->BeginDraw();
-    pBitmapRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-    pBitmapRenderTarget->EndDraw();
-
-    Layer layer = Layer{ pBitmapRenderTarget, pBitmap };
+    // Add to layers
+    Layer layer = { pBitmap };
     layers.emplace_back(layer);
 
-    if (fromFile == false) {
+    if (!fromFile) {
         LayerOrder layerOrder = { static_cast<int>(layers.size()) - 1, static_cast<int>(layers.size()) - 1 };
         layersOrder.emplace_back(layerOrder);
     }
@@ -44,60 +55,115 @@ HRESULT TAddLayer(bool fromFile = false) {
 }
 
 void TAddLayerButton(HWND layerButton) {
-
+    // Get client rect for size
     RECT rc;
     GetClientRect(layerButton, &rc);
-
     D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
 
-    HDC hdc = GetDC(layerButton);
+    // Create another device context from the same D2D device (not HWND render target)
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> layerDeviceContext;
+    HRESULT hr = g_pD2DDevice->CreateDeviceContext(
+        D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
+        &layerDeviceContext
+    );
 
-    HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 255));
-    HBITMAP hBitmap = CreateCompatibleBitmap(hdc, size.width, size.height);
+    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
+    hr = g_pD3DDevice.As(&dxgiDevice);
+    
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    hr = dxgiDevice->GetAdapter(&adapter);
 
-    SelectObject(hdc, hBrush);
-    FillRect(hdc, &rc, hBrush);
+    // Create swap chain for this layer window
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
+    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
 
-    SendMessage(layerButton, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap);
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
+    swapDesc.Width = size.width;
+    swapDesc.Height = size.height;
+    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    swapDesc.SampleDesc.Count = 1;
+    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapDesc.BufferCount = 2;
+    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 
-    LayerButtons.push_back({ layerButton , hBitmap });
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> layerSwapChain;
+    hr = dxgiFactory->CreateSwapChainForHwnd(
+        g_pD3DDevice.Get(),
+        layerButton,
+        &swapDesc,
+        nullptr, nullptr,
+        &layerSwapChain
+    );
 
-    DeleteObject(hBrush);
-    ReleaseDC(layerButton, hdc);
+    // Set the swap chain as target for the device context
+    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
+    layerSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
+    D2D1_BITMAP_PROPERTIES1 bitmapProperties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+    );
+
+    layerDeviceContext->CreateBitmapFromDxgiSurface(
+        backBuffer.Get(),
+        &bitmapProperties,
+        &targetBitmap
+    );
+
+    layerDeviceContext->SetTarget(targetBitmap.Get());
+
+    // Store the device context and swap chain
+    LayerButtons.push_back({
+        layerButton,
+        layerDeviceContext.Get(),
+        layerSwapChain.Get(),
+    });
+
+    TDrawLayerPreview(GetDlgCtrlID(layerButton));
 }
 
 HRESULT TRemoveLayer() {
 
+    int idx = layerIndex;
+
+    // Validate layerIndex
+    if (layerIndex < 0 || layerIndex >= static_cast<int>(layers.size()))
+        return E_INVALIDARG;
+
+    // Remove the layer
     layers.erase(layers.begin() + layerIndex);
 
-    for (auto it = layersOrder.begin(); it != layersOrder.end(); ++it) {
-        if (it->layerIndex == layerIndex) {
-            layersOrder.erase(it);
-            break;
-        }
-    }
+    // Remove from layersOrder
+    layersOrder.erase(
+        std::remove_if(layersOrder.begin(), layersOrder.end(),
+            [idx](const LayerOrder& lo) { return lo.layerIndex == layerIndex; }),
+        layersOrder.end()
+    );
 
+    // Update remaining layer indices
     for (auto& lo : layersOrder) {
-        if (lo.layerIndex > layerIndex) {
-            lo.layerIndex--; // shift left
-        }
-
-        lo.layerOrder--;
+        if (lo.layerIndex > layerIndex)
+            lo.layerIndex--;
+        lo.layerOrder--; // only if this is necessary
     }
 
+    // Remove associated Actions
     Actions.erase(
-        std::remove_if(Actions.begin(), Actions.end(), [](const ACTION& a) {
-            return a.Layer == layerIndex;
-            }),
+        std::remove_if(Actions.begin(), Actions.end(),
+            [idx](const ACTION& a) { return a.Layer == layerIndex; }),
         Actions.end()
     );
 
+    // Shift layers in Actions
     for (auto& a : Actions) {
         if (a.Layer > layerIndex)
-            a.Layer--; // shift left
+            a.Layer--;
     }
 
-    if (layers.size() == 0) TAddLayer();
+    // Ensure at least 1 layer exists
+    if (layers.empty())
+        TAddLayer();
 
     return S_OK;
 }
@@ -144,7 +210,7 @@ HRESULT __stdcall TRecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int 
         TAddLayerButton(button);
 
         if (i == maxLayer - 1) {
-            layerID = i; // Atualiza layerID para o �ltimo �ndice usado
+            layerID = i; // Atualiza layerID para o último índice usado
         }
     }
 
@@ -161,78 +227,79 @@ void TSetLayer(int index) {
 }
 
 void TReorderLayerUp() {
-    if (layersOrder[layerIndex].layerOrder > 0) {
-        int previousOrder = layersOrder[layerIndex].layerOrder;
-        int targetOrder = previousOrder - 1;
+    if (layerIndex < 0 || layerIndex >= static_cast<int>(layersOrder.size()))
+        return; // invalido
 
-        int index = std::distance(layersOrder.begin(),
-            std::find_if(layersOrder.begin(), layersOrder.end(),
-                [targetOrder](const LayerOrder& l) { return l.layerOrder == targetOrder; })
-        );
+    int previousOrder = layersOrder[layerIndex].layerOrder;
+    if (previousOrder <= 0) return; // já no topo
 
-        layersOrder[layerIndex].layerOrder = layersOrder[index].layerOrder;
-        layersOrder[index].layerOrder = previousOrder;
-    }
-    return;
+    int targetOrder = previousOrder - 1;
+
+    auto it = std::find_if(layersOrder.begin(), layersOrder.end(),
+        [targetOrder](const LayerOrder& l) { return l.layerOrder == targetOrder; });
+
+    if (it == layersOrder.end()) return; // target não existe
+    int index = static_cast<int>(std::distance(layersOrder.begin(), it));
+
+    // troca os valores
+    std::swap(layersOrder[layerIndex].layerOrder, layersOrder[index].layerOrder);
 }
 
 void TReorderLayerDown() {
-    if (layersOrder[layerIndex].layerOrder < layers.size() - 1) {
-        int previousOrder = layersOrder[layerIndex].layerOrder;
-        int targetOrder = previousOrder + 1;
+    if (layerIndex < 0 || layerIndex >= static_cast<int>(layersOrder.size()))
+        return; // invalido
 
-        int index = std::distance(layersOrder.begin(),
-            std::find_if(layersOrder.begin(), layersOrder.end(),
-                [targetOrder](const LayerOrder& l) { return l.layerOrder == targetOrder; })
-        );
+    int previousOrder = layersOrder[layerIndex].layerOrder;
+    if (previousOrder >= static_cast<int>(layers.size()) - 1) return; // já no fundo
 
-        layersOrder[layerIndex].layerOrder = layersOrder[index].layerOrder;
-        layersOrder[index].layerOrder = previousOrder;
-    }
-    return;
+    int targetOrder = previousOrder + 1;
+
+    auto it = std::find_if(layersOrder.begin(), layersOrder.end(),
+        [targetOrder](const LayerOrder& l) { return l.layerOrder == targetOrder; });
+
+    if (it == layersOrder.end()) return; // target não existe
+    int index = static_cast<int>(std::distance(layersOrder.begin(), it));
+
+    std::swap(layersOrder[layerIndex].layerOrder, layersOrder[index].layerOrder);
 }
 
-void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target) {
-    if (!target) return;
+void TRenderActionToTarget(const ACTION& action) {
+
+    D2D1_COLOR_F color = HGetRGBColor(action.Color);
+
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(color, &pBrush);
+    }
+    else {
+        pBrush->SetColor(color);
+    }
 
     switch (action.Tool) {
     case TEraser:
-        target->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        target->Clear(D2D1::ColorF(0, 0, 0, 0));
-        target->PopAxisAlignedClip();
+        pRenderTarget->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+        pRenderTarget->PopAxisAlignedClip();
         break;
 
     case TRectangle: {
-        ComPtr<ID2D1SolidColorBrush> brush;
-        target->CreateSolidColorBrush(HGetRGBColor(action.Color), &brush);
-
-        target->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        target->FillRectangle(action.Position, brush.Get());
-        target->PopAxisAlignedClip();
+        pRenderTarget->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        pRenderTarget->FillRectangle(action.Position, pBrush.Get());
+        pRenderTarget->PopAxisAlignedClip();
         break;
     }
 
     case TEllipse: {
-        ComPtr<ID2D1SolidColorBrush> brush;
-        target->CreateSolidColorBrush(HGetRGBColor(action.Color), &brush);
-        target->FillEllipse(action.Ellipse, brush.Get());
+        pRenderTarget->FillEllipse(action.Ellipse, pBrush.Get());
         break;
     }
 
     case TLine: {
-        ComPtr<ID2D1SolidColorBrush> brush;
-        target->CreateSolidColorBrush(HGetRGBColor(action.Color), &brush);
-        target->DrawLine(action.Line.startPoint, action.Line.endPoint, brush.Get(), action.BrushSize, nullptr);
+        pRenderTarget->DrawLine(action.Line.startPoint, action.Line.endPoint, pBrush.Get(), action.BrushSize, nullptr);
         break;
     }
 
     case TBrush: {
-        ComPtr<ID2D1SolidColorBrush> brush;
         for (const auto& vertex : action.FreeForm.vertices) {
-
-            D2D1_COLOR_F color = HGetRGBColor(action.Color);
-            target->CreateSolidColorBrush(color, &brush);
-
             if (action.isPixelMode) {
                 int snappedLeft = static_cast<int>(vertex.x / pixelSizeRatio) * pixelSizeRatio;
                 int snappedTop = static_cast<int>(vertex.y / pixelSizeRatio) * pixelSizeRatio;
@@ -244,7 +311,7 @@ void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target) {
                     static_cast<float>(snappedTop + pixelSizeRatio)
                 );
 
-                target->FillRectangle(pixel, brush.Get());
+                pRenderTarget->FillRectangle(pixel, pBrush.Get());
             } else {
 
                 float scaledLeft = static_cast<float>(vertex.x) / zoomFactor;
@@ -259,20 +326,46 @@ void TRenderActionToTarget(const ACTION& action, ID2D1RenderTarget* target) {
                     scaledTop + scaledBrushSize * 0.5f
                 );
 
-                layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
-                layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush.Get());
+                pRenderTarget->DrawRectangle(rect, pBrush.Get());
+                pRenderTarget->FillRectangle(rect, pBrush.Get());
             }
         }
         break;
     }
 
     case TPaintBucket: {
-        ComPtr<ID2D1SolidColorBrush> brush;
-        target->CreateSolidColorBrush(HGetRGBColor(action.FillColor), &brush);
         for (const auto& p : action.pixelsToFill) {
-            D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
-            target->FillRectangle(&rect, brush.Get());
+            D2D1_RECT_F rect = D2D1::RectF((float)p.x * zoomFactor, (float)p.y * zoomFactor, (float)(p.x * zoomFactor + 1), (float)(p.y * zoomFactor + 1));
+            pRenderTarget->FillRectangle(&rect, pBrush.Get());
         }
+        break;
+    }
+
+    case TWrite: {
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
+
+        pDWriteFactory->CreateTextFormat(
+            L"Segoe UI",                // Font family
+            nullptr,                    // Font collection (nullptr = system)
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            24.0f,                      // Font size in DIPs
+            L"en-us",                   // Locale
+            &pTextFormat
+        );
+
+        const WCHAR* text = action.Text;
+        size_t textLength = wcslen(text);
+
+        pRenderTarget->DrawTextW(
+            text,               // Text
+            static_cast<UINT32>(textLength),
+            pTextFormat.Get(),  // Text format
+            action.Position,           // Layout rectangle
+            pBrush.Get()         // Brush
+        );
+
         break;
     }
 
@@ -293,224 +386,102 @@ void TUpdateLayers(int layerIndexTarget = -1) {
 
     auto& layer = layers[layerIndexTarget];
 
-    if (!layer.pBitmapRenderTarget) return;
-
-    layer.pBitmapRenderTarget->BeginDraw();
-    layer.pBitmapRenderTarget->Clear(D2D1::ColorF(255, 255, 255, 0)); // Transparente
+    pRenderTarget->SetTarget(layer.pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f)); // Transparente
 
     for (const auto& action : Actions) {
         if (action.Layer == layerIndexTarget) {
-            TRenderActionToTarget(action, layer.pBitmapRenderTarget.Get());
+            TRenderActionToTarget(action);
         }
     }
 
-    layer.pBitmapRenderTarget->EndDraw();
+    pRenderTarget->EndDraw();
 }
 
 void TRenderLayers() {
-    if (!pRenderTarget) {
+    // Check swap chain
+    if (!g_pSwapChain) {
+        OutputDebugStringW(L"TRenderLayers: g_pSwapChain is nullptr. Attempting to reinitialize.\n");
+        HRESULT hr = TInitializeDocument(docHWND, -1, -1, -1);
+        if (FAILED(hr)) {
+            OutputDebugStringW((L"TRenderLayers: Failed to reinitialize document, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+            return;
+        }
+    }
+
+    // Get backbuffer surface
+    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
+    HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(IDXGISurface), &backBuffer);
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"TRenderLayers: Failed to get backbuffer, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
         return;
     }
 
+    // Get DPI from pRenderTarget
+    FLOAT dpiX, dpiY;
+    pRenderTarget->GetDpi(&dpiX, &dpiY);
+
+    // Create bitmap from backbuffer
+    D2D1_BITMAP_PROPERTIES1 bitmapProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpiX, dpiY
+    );
+
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
+    hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"TRenderLayers: Failed to create bitmap from DXGI surface, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return;
+    }
+
+    // Set as target
+    pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
+
     pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));   
+        
+    std::vector<LayerOrder> sortedLayers = layersOrder;
+    std::sort(sortedLayers.begin(), sortedLayers.end(),
+        [](const LayerOrder& a, const LayerOrder& b) {
+            return a.layerOrder < b.layerOrder; // lower order drawn first
+        });
+
+    for (const auto& lo : sortedLayers) {
+        int index = lo.layerIndex;
+        if (index < 0 || index >= layers.size()) continue;
+        pRenderTarget->DrawBitmap(layers[index].pBitmap.Get());
+    }
+
+    pRenderTarget->EndDraw();
 
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
-    pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
-
-    std::vector<LayerOrder> sortedLayers = layersOrder;
-    std::sort(sortedLayers.begin(), sortedLayers.end(), [](const LayerOrder& a, const LayerOrder& b) {
-        return a.layerOrder < b.layerOrder;
-        });
-
-    for (size_t i = 0; i < sortedLayers.size(); ++i) {
-        const auto& layer = layers[sortedLayers[i].layerIndex];
-
-        if (layer.pBitmap) {
-            pRenderTarget->DrawBitmap(layer.pBitmap.Get());
-        }
-    }
-
-    HRESULT hr = pRenderTarget->EndDraw();
-
+    // Present
+    hr = g_pSwapChain->Present(0, 0);
     if (FAILED(hr)) {
-        MessageBox(NULL, L"Failed to render layers", L"Error", MB_OK);
+        OutputDebugStringW((L"TRenderLayers: Present failed, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
     }
+
+    TDrawLayerPreview(layerIndex);
 }
 
 void TDrawLayerPreview(int currentLayer) {
-
-    HBITMAP hBitmap = LayerButtons[layerIndex].hBitmap;
-
-    RECT WindowRC;
-    GetClientRect(docHWND, &WindowRC);
-
     RECT rc;
-    GetClientRect(LayerButtons[layerIndex].button, &rc);
+    GetClientRect(LayerButtons[currentLayer].button, &rc);
 
-    HDC hdc = GetDC(LayerButtons[layerIndex].button);
-    HDC compatibleDC = CreateCompatibleDC(hdc);
+    LayerButtons[currentLayer].deviceContext->BeginDraw();
+    LayerButtons[currentLayer].deviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    LayerButtons[currentLayer].deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
 
-    SelectObject(compatibleDC, hBitmap);
+    // If you want to draw the actual layer content, you'd do something like:
+    LayerButtons[currentLayer].deviceContext->DrawBitmap(layers[currentLayer].pBitmap.Get(), D2D1::RectF(rc.left, rc.top, rc.right, rc.bottom));
 
-    BITMAP bmp = {};
-    GetObject(hBitmap, sizeof(BITMAP), &bmp);
+    HRESULT hr = LayerButtons[currentLayer].deviceContext->EndDraw();
 
-    RECT bmpRect = { 0, 0, bmp.bmWidth, bmp.bmHeight };
-
-    HBRUSH whiteBrush = (HBRUSH)GetStockObject(WHITE_BRUSH);
-    FillRect(compatibleDC, &bmpRect, whiteBrush);
-
-    if (!LayerButtons[layerIndex].isInitialPainted) {
-        HBRUSH whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
-        SelectObject(compatibleDC, whiteBrush);
-
-        COLORREF initialClickedColor = GetPixel(compatibleDC, 0, 0);
-
-        ExtFloodFill(compatibleDC, 0, 0, initialClickedColor, FLOODFILLSURFACE);
-
-        DeleteObject(whiteBrush);
-
-        LayerButtons[layerIndex].isInitialPainted = true;
-    }
-
-    for (int i = 0; i < Actions.size(); i++) {
-        if (Actions[i].Layer == layerIndex) {
-            if (Actions[i].Tool == TBrush) {
-                for (int j = 0; j < Actions[i].FreeForm.vertices.size(); j++) {
-                    float scaledLeft = static_cast<float>(Actions[i].FreeForm.vertices[j].x);
-                    float scaledTop = static_cast<float>(Actions[i].FreeForm.vertices[j].y);
-
-                    float scaledBrushSize = static_cast<float>(Actions[i].BrushSize) / zoomFactor;
-                    float scaledPixelSizeRatio = static_cast<float>(pixelSizeRatio) / zoomFactor;
-                    
-                    if (!Actions[i].isPixelMode) {
-                        scaledBrushSize = static_cast<float>(Actions[i].FreeForm.vertices[j].BrushSize) / zoomFactor;
-
-                        if (scaledBrushSize > 12.0f)
-                            scaledBrushSize = 12.0f;
-
-                        if (scaledBrushSize < 1.0f)
-                            scaledBrushSize = 1.0f;
-                    }
-
-                    int snappedLeft = static_cast<int>(scaledLeft / scaledPixelSizeRatio) * scaledPixelSizeRatio;
-                    int snappedTop = static_cast<int>(scaledTop / scaledPixelSizeRatio) * scaledPixelSizeRatio;
-
-                    HBRUSH hBrush = CreateSolidBrush(Actions[i].Color);
-                    HPEN hPen = CreatePen(PS_SOLID, scaledBrushSize, Actions[i].Color);
-                   
-                    SelectObject(compatibleDC, hBrush);
-                    SelectObject(compatibleDC, hPen);
-
-                    if (Actions[i].isPixelMode) {
-                        RECT pXY = HScalePointsToButton(snappedLeft, snappedTop, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), true, pixelSizeRatio);
-                        RECT rectPoint = { pXY.left, pXY.top, pXY.right, pXY.bottom };
-                        Rectangle(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
-                    }
-                    else
-                    {
-                        RECT pXY = HScalePointsToButton(Actions[i].FreeForm.vertices[j].x, Actions[i].FreeForm.vertices[j].y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-                        RECT rectPoint = { pXY.left - 1, pXY.top - 1, pXY.left + 1, pXY.top + 1 };
-                        Ellipse(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
-                    }
-
-                    DeleteObject(hBrush);
-                    DeleteObject(hPen);
-                }
-            }
-            else if (Actions[i].Tool == TEraser) {
-                HBRUSH hBrush = CreateSolidBrush(RGB(255, 255, 255));
-                HPEN hPen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
-
-                SelectObject(compatibleDC, hBrush);
-                SelectObject(compatibleDC, hPen);
-
-                RECT pXY = HScalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-                RECT pWZ = HScalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-
-                RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
-
-                Ellipse(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
-
-                DeleteObject(hBrush);
-                DeleteObject(hPen);
-            }
-            else if (Actions[i].Tool == TRectangle) {
-                HBRUSH hBrush = CreateSolidBrush(Actions[i].Color);
-                HPEN hPen = CreatePen(PS_SOLID, 1, Actions[i].Color);
-
-                SelectObject(compatibleDC, hBrush);
-                SelectObject(compatibleDC, hPen);
-
-                RECT pXY = HScalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-                RECT pWZ = HScalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-
-                RECT rectPoint = { pXY.left, pXY.top, pWZ.left, pWZ.top };
-
-                Rectangle(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
-
-                DeleteObject(hBrush);
-                DeleteObject(hPen);
-            }
-            else if (Actions[i].Tool == TEllipse) {
-                HBRUSH hBrush = CreateSolidBrush(Actions[i].Color);
-                HPEN hPen = CreatePen(PS_SOLID, 1, Actions[i].Color);
-
-                SelectObject(compatibleDC, hBrush);
-                SelectObject(compatibleDC, hPen);
-
-                RECT pXY = HScalePointsToButton(Actions[i].Position.left, Actions[i].Position.top, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-                RECT pWZ = HScalePointsToButton(Actions[i].Position.right, Actions[i].Position.bottom, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-
-                RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
-
-                Ellipse(compatibleDC, rectPoint.left, rectPoint.top, rectPoint.right, rectPoint.bottom);
-
-                DeleteObject(hBrush);
-                DeleteObject(hPen);
-            }
-            else if (Actions[i].Tool == TLine) {
-                HPEN hPen = CreatePen(PS_SOLID, 1, Actions[i].Color);
-
-                SelectObject(compatibleDC, hPen);
-
-                RECT pXY = HScalePointsToButton(Actions[i].Line.startPoint.x, Actions[i].Line.startPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-                RECT pWZ = HScalePointsToButton(Actions[i].Line.endPoint.x, Actions[i].Line.endPoint.y, (WindowRC.right - WindowRC.left), (WindowRC.bottom - WindowRC.top), (rc.right - rc.left), (rc.bottom - rc.top), false, 1);
-
-                RECT rectPoint = { pXY.left - 1, pXY.top - 1, pWZ.left + 1, pWZ.top + 1 };
-
-                MoveToEx(compatibleDC, rectPoint.left, rectPoint.top, NULL);
-                LineTo(compatibleDC, rectPoint.right, rectPoint.bottom);
-
-                DeleteObject(hPen);
-            }
-            else if (Actions[i].Tool == TPaintBucket) {
-                RECT XY = HScalePointsToButton(
-                    Actions[i].mouseX,
-                    Actions[i].mouseY,
-                    (WindowRC.right - WindowRC.left),
-                    (WindowRC.bottom - WindowRC.top),
-                    (rc.right - rc.left),
-                    (rc.bottom - rc.top),
-                    false,
-                    1
-                );
-
-                COLORREF clickedColor = GetPixel(compatibleDC, XY.left, XY.top);
-
-                HBRUSH fillBrush = CreateSolidBrush(Actions[i].FillColor);
-                SelectObject(compatibleDC, fillBrush);
-
-                ExtFloodFill(compatibleDC, XY.left, XY.top, clickedColor, FLOODFILLSURFACE);
-
-                DeleteObject(fillBrush);
-            }
-        }
-    }
-
-    DeleteDC(compatibleDC);
-    ReleaseDC(LayerButtons[layerIndex].button, hdc);
-
-    RedrawWindow(layersHWND, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+    // Present the swap chain for this layer window
+    LayerButtons[currentLayer].swapChain->Present(1, 0);
 }

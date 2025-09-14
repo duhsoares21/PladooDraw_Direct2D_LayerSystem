@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Base.h"
 #include "Structs.h"
 #include "Constants.h"
 #include "Helpers.h"
@@ -14,9 +15,9 @@ void TEraserTool(int left, int top) {
         prevTop = static_cast<float>(top) / zoomFactor;
     }
 
-    auto target = layers[layerIndex].pBitmapRenderTarget;
-
-    target->BeginDraw();
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Scale coordinates and size
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -45,9 +46,9 @@ void TEraserTool(int left, int top) {
                 y + scaledBrushSize
             );
 
-            target->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-            target->PopAxisAlignedClip();
+            pRenderTarget->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            pRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+            pRenderTarget->PopAxisAlignedClip();
 
             if (x != prevLeft || y != prevTop) {
                 if (x != -1 && y != -1) {
@@ -70,9 +71,9 @@ void TEraserTool(int left, int top) {
         scaledTop + scaledBrushSize
     );
 
-    target->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    target->Clear(D2D1::ColorF(0, 0, 0, 0));
-    target->PopAxisAlignedClip();
+    pRenderTarget->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+    pRenderTarget->PopAxisAlignedClip();
 
     if (scaledLeft != prevLeft || scaledTop != prevTop) {
         if (scaledLeft != -1 && scaledTop != -1) {
@@ -89,11 +90,16 @@ void TEraserTool(int left, int top) {
     prevLeft = scaledLeft;
     prevTop = scaledTop;
 
-    target->EndDraw();
+    pRenderTarget->EndDraw();
 }
 
 void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixelSizeRatio) {
-    ComPtr<ID2D1SolidColorBrush> brush;
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
+    }
+    else {
+        pBrush->SetColor(HGetRGBColor(hexColor));
+    }
 
     if (pixelSizeRatio == -1) {
         pixelSizeRatio = pPixelSizeRatio;
@@ -103,30 +109,42 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
     isDrawingBrush = true;
     isPixelMode = pixelMode;
 
-    pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &brush);
-
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
     pRenderTarget->BeginDraw();
-    layers[layerIndex].pBitmapRenderTarget->BeginDraw();
+
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Scale coordinates and sizes
     float scaledLeft = static_cast<float>(left) / zoomFactor;
     float scaledTop = static_cast<float>(top) / zoomFactor;
     float scaledBrushSize = static_cast<float>(currentBrushSize) / zoomFactor;
-    float scaledPixelSizeRatio = static_cast<float>(pixelSizeRatio) / zoomFactor;
 
     if (pixelMode) {
+        RECT rect;
+
+        GetWindowRect(docHWND, &rect);
+
+        int DocumentWidth = rect.right - rect.left;
+        int DocumentHeight = rect.bottom - rect.top;
+
+        int CanvasWidth = DocumentWidth / 16;
+        int CanvasHeight = DocumentHeight / 16;
+
+        pixelSizeRatio = DocumentWidth / CanvasWidth;
+
         // PIXEL MODE: 1x1 rectangles only
-        int snappedLeft = static_cast<int>(scaledLeft / scaledPixelSizeRatio) * scaledPixelSizeRatio;
-        int snappedTop = static_cast<int>(scaledTop / scaledPixelSizeRatio) * scaledPixelSizeRatio;
+        int snappedLeft = static_cast<int>(scaledLeft / pixelSizeRatio) * pixelSizeRatio;
+        int snappedTop = static_cast<int>(scaledTop / pixelSizeRatio) * pixelSizeRatio;
 
         D2D1_RECT_F pixel = D2D1::RectF(
             static_cast<float>(snappedLeft),
             static_cast<float>(snappedTop),
-            static_cast<float>(snappedLeft + scaledPixelSizeRatio),
-            static_cast<float>(snappedTop + scaledPixelSizeRatio)
+            static_cast<float>(snappedLeft + pixelSizeRatio),
+            static_cast<float>(snappedTop + pixelSizeRatio)
         );
 
-        layers[layerIndex].pBitmapRenderTarget->FillRectangle(pixel, brush.Get());
+        pRenderTarget->FillRectangle(pixel, pBrush.Get());
+
         Vertices.emplace_back(VERTICE{ static_cast<float>(snappedLeft), static_cast<float>(snappedTop), static_cast<int>(currentBrushSize) });
     }
     else {
@@ -157,8 +175,8 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
                     y + scaledBrushSize * 0.5f
                 );
 
-                layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
-                layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush.Get());
+                pRenderTarget->DrawRectangle(rect, pBrush.Get());
+                pRenderTarget->FillRectangle(rect, pBrush.Get());
 
                 if (x != -1 && y != -1) {
                     Vertices.emplace_back(VERTICE{ x, y });
@@ -173,23 +191,14 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
             scaledTop + scaledBrushSize * 0.5f
         );
 
-        layers[layerIndex].pBitmapRenderTarget->DrawRectangle(rect, brush.Get());
-        layers[layerIndex].pBitmapRenderTarget->FillRectangle(rect, brush.Get());
-
-        /*D2D1_ELLIPSE ellipse = D2D1::Ellipse(
-            D2D1::Point2F(scaledLeft - scaledBrushSize, scaledTop - scaledBrushSize),
-            scaledBrushSize / 2.0f,
-            scaledBrushSize / 2.0f
-        );
-
-        layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush.Get());*/
+        pRenderTarget->DrawRectangle(rect, pBrush.Get());
+        pRenderTarget->FillRectangle(rect, pBrush.Get());
 
         if (scaledLeft != -1 && scaledTop != -1) {
             Vertices.emplace_back(VERTICE{ static_cast<float>(scaledLeft), static_cast<float>(scaledTop), static_cast<int>(currentBrushSize) });
         }
     }
 
-    layers[layerIndex].pBitmapRenderTarget->EndDraw();
     pRenderTarget->EndDraw();
 
     prevLeft = scaledLeft;
@@ -197,8 +206,12 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
 }
 
 void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexColor) {
-    ComPtr<ID2D1SolidColorBrush> brush;
-    pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &brush);
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
+    }
+    else {
+        pBrush->SetColor(HGetRGBColor(hexColor));
+    }
 
     if (!isDrawingRectangle) {
         TAddLayer(false);
@@ -208,7 +221,9 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
 
     currentColor = hexColor;
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->BeginDraw();
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Scale coordinates
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -219,23 +234,27 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
     rectangle = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
 
     if (prevRectangle.left != 0 || prevRectangle.top != 0 || prevRectangle.right != 0 || prevRectangle.bottom != 0) {
-        layers[TLayersCount() - 1].pBitmapRenderTarget->PushAxisAlignedClip(prevRectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        layers[TLayersCount() - 1].pBitmapRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        layers[TLayersCount() - 1].pBitmapRenderTarget->PopAxisAlignedClip();
+        pRenderTarget->PushAxisAlignedClip(prevRectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+        pRenderTarget->PopAxisAlignedClip();
     }
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    layers[TLayersCount() - 1].pBitmapRenderTarget->FillRectangle(rectangle, brush.Get());
-    layers[TLayersCount() - 1].pBitmapRenderTarget->PopAxisAlignedClip();
+    pRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    pRenderTarget->FillRectangle(rectangle, pBrush.Get());
+    pRenderTarget->PopAxisAlignedClip();
 
     prevRectangle = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->EndDraw();
+    pRenderTarget->EndDraw();
 }
 
 void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColor) {
-    ComPtr<ID2D1SolidColorBrush> brush;
-    pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &brush);
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
+    }
+    else {
+        pBrush->SetColor(HGetRGBColor(hexColor));
+    }
 
     if (!isDrawingEllipse) {
         TAddLayer(false);
@@ -245,7 +264,9 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
 
     currentColor = hexColor;
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->BeginDraw();
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Scale coordinates
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -267,21 +288,26 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
             prevEllipse.point.y + prevEllipse.radiusY
         );
 
-        layers[TLayersCount() - 1].pBitmapRenderTarget->PushAxisAlignedClip(prevRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        layers[TLayersCount() - 1].pBitmapRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        layers[TLayersCount() - 1].pBitmapRenderTarget->PopAxisAlignedClip();
+        pRenderTarget->PushAxisAlignedClip(prevRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+        pRenderTarget->PopAxisAlignedClip();
     }
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->FillEllipse(ellipse, brush.Get());
+    pRenderTarget->FillEllipse(ellipse, pBrush.Get());
 
     prevEllipse = ellipse;
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->EndDraw();
+    pRenderTarget->EndDraw();
 }
 
 void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) {
-    ComPtr<ID2D1SolidColorBrush> brush;
-    pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &brush);
+    
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
+    }
+    else {
+        pBrush->SetColor(HGetRGBColor(hexColor));
+    }
 
     if (!isDrawingLine) {
         TAddLayer(false);
@@ -291,7 +317,9 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 
     currentColor = hexColor;
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->BeginDraw();
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Scale coordinates and size
     float scaledXInitial = static_cast<float>(xInitial) / zoomFactor;
@@ -308,36 +336,35 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
             max(startPoint.y, endPoint.y) + scaledBrushSize
         );
 
-        layers[TLayersCount() - 1].pBitmapRenderTarget->PushAxisAlignedClip(lineBounds, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        layers[TLayersCount() - 1].pBitmapRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        layers[TLayersCount() - 1].pBitmapRenderTarget->PopAxisAlignedClip();
+        pRenderTarget->PushAxisAlignedClip(lineBounds, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+        pRenderTarget->PopAxisAlignedClip();
     }
 
     startPoint = D2D1::Point2F(scaledXInitial, scaledYInitial);
     endPoint = D2D1::Point2F(scaledX, scaledY);
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), scaledBrushSize, nullptr);
+    pRenderTarget->DrawLine(startPoint, endPoint, pBrush.Get(), scaledBrushSize, nullptr);
 
-    layers[TLayersCount() - 1].pBitmapRenderTarget->EndDraw();
+    pRenderTarget->EndDraw();
 }
 
 void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
-    // 1) Captura o tamanho real (ampliado) da janela de desenho
     RECT rc;
     GetClientRect(docHWND, &rc);
-    int capW = rc.right - rc.left;   // width * zoomFactor
-    int capH = rc.bottom - rc.top;   // height * zoomFactor
+    
+    int capW = static_cast<int>(logicalWidth);
+    int capH = static_cast<int>(logicalHeight);
 
-    // 2) Captura pixels da tela ampliada
-    std::vector<COLORREF> pixels = CaptureWindowPixels(docHWND, capW, capH);
+    std::vector<COLORREF> pixels = CaptureCanvasPixels();
     if (pixels.size() < static_cast<size_t>(capW * capH)) {
         HCreateLogData("error.log", "PaintBucketTool: falha ao capturar pixels ampliados");
         return;
     }
 
-    // 3) Flood-fill em screen coords
-    int startX = mouseX;
-    int startY = mouseY;
+    int startX = static_cast<int>(mouseX / zoomFactor);
+    int startY = static_cast<int>(mouseY / zoomFactor);
+
     int startIdx = startY * capW + startX;
     COLORREF targetColor = pixels[startIdx];
     if (targetColor == fillColor) return;
@@ -368,26 +395,23 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
         }
     }
 
-    // 4) Converte para canvas “sem zoom”
-    std::vector<POINT> pixelsToFill;
-    pixelsToFill.reserve(rawPixelsToFill.size());
-    for (auto& p : rawPixelsToFill) {
-        pixelsToFill.push_back({
-            static_cast<int>(std::floor(p.x / zoomFactor)),
-            static_cast<int>(std::floor(p.y / zoomFactor))
-            });
-    }
+    std::vector<POINT> pixelsToFill = rawPixelsToFill;
 
-    // 5) Desenha em múltiplas threads no BitmapRenderTarget
-    auto target = layers[layerIndex].pBitmapRenderTarget.Get();
-    ComPtr<ID2D1SolidColorBrush> brush;
-    pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fillColor), &brush);
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fillColor), &pBrush);
+    }
+    else {
+        pBrush->SetColor(HGetRGBColor(fillColor));
+    }
 
     const int threadCount = std::thread::hardware_concurrency();
     std::vector<std::thread> threads;
     std::mutex drawMutex;
 
-    target->BeginDraw();
+
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
     for (int t = 0; t < threadCount; ++t) {
         threads.emplace_back([&, t]() {
             for (size_t j = t; j < pixelsToFill.size(); j += threadCount) {
@@ -396,27 +420,123 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
                     float(ip.x), float(ip.y),
                     float(ip.x + 1), float(ip.y + 1)
                 );
-                // serialize chamadas D2D
-                std::lock_guard<std::mutex> lk(drawMutex);
-                target->FillRectangle(r, brush.Get());
+                
+                pRenderTarget->FillRectangle(r, pBrush.Get());
             }
-            });
+        });
     }
     for (auto& th : threads) th.join();
-    target->EndDraw();
+    pRenderTarget->EndDraw();
 
     // 6) Salva ACTION
     ACTION action;
     action.Tool = TPaintBucket;
     action.Layer = layerIndex;
     action.FillColor = fillColor;
-    action.mouseX = static_cast<int>(std::floor(startX / zoomFactor));
-    action.mouseY = static_cast<int>(std::floor(startY / zoomFactor));
+    action.mouseX = startX;
+    action.mouseY = startY;
     action.pixelsToFill = std::move(pixelsToFill);
     Actions.emplace_back(std::move(action));
 
     TRenderLayers();
-    TDrawLayerPreview(layerIndex);
+}
+
+void TWriteTool(int xInitial, int yInitial, int x, int y) {
+    if (pBrush == nullptr) {
+        pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &pBrush);
+    }
+    else {
+        pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+    }
+
+    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    isWritingText = true;
+
+    // Scale coordinates
+    float scaledLeft = static_cast<float>(xInitial) / zoomFactor;
+    float scaledTop = static_cast<float>(yInitial) / zoomFactor;
+    float scaledRight = static_cast<float>(x) / zoomFactor;
+    float scaledBottom = static_cast<float>(y) / zoomFactor;
+
+    textArea = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
+
+    if (prevTextArea.left != 0 || prevTextArea.top != 0 || prevTextArea.right != 0 || prevTextArea.bottom != 0) {
+        pRenderTarget->PushAxisAlignedClip(prevTextArea, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+        pRenderTarget->PopAxisAlignedClip();
+    }
+
+    D2D1_STROKE_STYLE_PROPERTIES strokeProps = {};
+    strokeProps.dashStyle = D2D1_DASH_STYLE_DASH;       // dashed line
+    strokeProps.lineJoin = D2D1_LINE_JOIN_ROUND;       // line corners
+    strokeProps.startCap = D2D1_CAP_STYLE_ROUND;       // start of line
+    strokeProps.endCap = D2D1_CAP_STYLE_ROUND;       // end of line
+    strokeProps.dashOffset = 0.0f;
+    
+    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> pStrokeStyle;
+    pD2DFactory->CreateStrokeStyle(
+        strokeProps,
+        nullptr,        // nullptr = default dash array
+        0,              // number of elements in dash array
+        &pStrokeStyle
+    );
+
+    pRenderTarget->PushAxisAlignedClip(textArea, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    pRenderTarget->DrawRectangle(textArea, pBrush.Get(), 1.0f, pStrokeStyle.Get());
+    pRenderTarget->PopAxisAlignedClip();
+
+    prevTextArea = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
+
+    pRenderTarget->EndDraw();
+
+    /*
+     if (isWritingText) {
+            ComPtr<ID2D1SolidColorBrush> textBrush;
+            pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fontColor), &textBrush);
+
+            Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
+
+            FLOAT fontSizeDIP = fontSize > 0 ? ((fontSize / 10.0f) * (96.0f / 72.0f)) : 0;
+
+            HRESULT hr = pDWriteFactory->CreateTextFormat(
+                fontFace.length() > 0 ? fontFace.c_str() : L"Arial",                // Font family
+                nullptr,                    // Font collection (nullptr = system)
+                (fontWeight >= FW_BOLD) ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_REGULAR,
+                fontItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                fontSize > 0 ? fontSizeDIP : 24.0f,                // Font size in DIPs
+                L"en-us",                   // Locale
+                &pTextFormat
+            );
+
+            if (FAILED(hr)) {
+                std::wcout << hr;
+            }
+
+            const WCHAR* text = L"Hello World";
+            size_t textLength = wcslen(text);
+
+            pRenderTarget->DrawTextW(
+                text,               // Text
+                static_cast<UINT32>(textLength),
+                pTextFormat.Get(),  // Text format
+                textArea,           // Layout rectangle
+                textBrush.Get()         // Brush
+            );
+
+            action.Tool = TWrite;
+            action.Layer = layerIndex;
+            action.Position = textArea;
+            action.Text = text;
+            action.Color = currentColor;
+
+            textArea = D2D1::RectF(0, 0, 0, 0);
+            isWritingText = false;
+        }
+    */
 }
 
 void __stdcall TSelectTool(int xInitial, int yInitial) {
@@ -557,3 +677,4 @@ void __stdcall TUnSelectTool() {
     selectedAction = false;
     TRenderLayers();
 }
+

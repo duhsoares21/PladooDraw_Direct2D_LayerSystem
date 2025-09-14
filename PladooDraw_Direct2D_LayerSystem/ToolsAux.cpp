@@ -9,19 +9,21 @@
 
 void THandleMouseUp() {
 
-    if (isDrawingRectangle || isDrawingEllipse || isDrawingLine) {
+    if (isDrawingRectangle || isDrawingEllipse || isDrawingLine || isWritingText) {
 
         ComPtr<ID2D1SolidColorBrush> brush;
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(currentColor), &brush);
 
-        layers[layerIndex].pBitmapRenderTarget->BeginDraw();
+        pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+        pRenderTarget->BeginDraw();
+        pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
         ACTION action;
 
         if (isDrawingRectangle) {
-            layers[layerIndex].pBitmapRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            layers[layerIndex].pBitmapRenderTarget->FillRectangle(rectangle, brush.Get());
-            layers[layerIndex].pBitmapRenderTarget->PopAxisAlignedClip();
+            pRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            pRenderTarget->FillRectangle(rectangle, brush.Get());
+            pRenderTarget->PopAxisAlignedClip();
 
             action.Tool = TRectangle;
             action.Layer = layerIndex;
@@ -33,7 +35,7 @@ void THandleMouseUp() {
         }
 
         if (isDrawingEllipse) {
-            layers[layerIndex].pBitmapRenderTarget->FillEllipse(ellipse, brush.Get());
+            pRenderTarget->FillEllipse(ellipse, brush.Get());
 
             action.Tool = TEllipse;
             action.Layer = layerIndex;
@@ -46,7 +48,7 @@ void THandleMouseUp() {
         }
 
         if (isDrawingLine) {
-            layers[layerIndex].pBitmapRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), currentBrushSize, nullptr);
+            pRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), currentBrushSize, nullptr);
 
             action.Tool = TLine;
             action.Layer = layerIndex;
@@ -57,10 +59,44 @@ void THandleMouseUp() {
             isDrawingLine = false;
         }
 
-        layers[layerIndex].pBitmapRenderTarget->EndDraw();
+        if (isWritingText) {
+            HINSTANCE hInstance = GetModuleHandle(NULL);
+            
+            HWND hTextArea = CreateWindowEx(
+                0,                    // extended styles
+                L"EDIT",              // class name for edit control
+                L"HELLO",                  // initial text
+                WS_CHILD | WS_VISIBLE | WS_BORDER |
+                ES_MULTILINE | WS_VSCROLL | ES_AUTOVSCROLL | ES_LEFT, // style
+                60, 60,                // x, y
+                textArea.right - textArea.left, textArea.bottom - textArea.top ,             // width, height
+                docHWND,                 // parent window
+                (HMENU)200,           // control ID
+                hInstance,        // instance handle
+                NULL                  // no extra params
+            );
 
-        layersOrder.pop_back();
-        layers.pop_back();
+            RedrawWindow(docHWND, nullptr, nullptr, RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN);
+           
+            if (!hTextArea)
+            {
+                DWORD err = GetLastError();
+                std::wcout << L"Failed to create text area: " << err << std::endl;
+            }
+            else
+            {
+                HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+                SendMessage(hTextArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+            }
+        }
+
+        pRenderTarget->EndDraw();
+
+        if (isDrawingRectangle || isDrawingEllipse || isDrawingLine) {
+            layersOrder.pop_back();
+            layers.pop_back();
+        }
+
         Actions.push_back(action);
         action = ACTION();
     }
@@ -96,7 +132,7 @@ void THandleMouseUp() {
     }
 
     TRenderLayers();
-    TDrawLayerPreview(layerIndex);
+    //TDrawLayerPreview(layerIndex);
 }
 
 void TUndo() {
@@ -107,7 +143,7 @@ void TUndo() {
 
         TUpdateLayers(layerIndex);
         TRenderLayers();
-        TDrawLayerPreview(layerIndex);
+        //TDrawLayerPreview(layerIndex);
     }
 }
 
@@ -119,7 +155,7 @@ void TRedo() {
 
         TUpdateLayers(layerIndex);
         TRenderLayers();
-        TDrawLayerPreview(layerIndex);
+        //TDrawLayerPreview(layerIndex);
     }
 }
 
@@ -218,30 +254,92 @@ bool HitTestAction(const ACTION& action, float x, float y) {
 
 /*FLOODFILL AUX*/
 
-std::vector<COLORREF> CaptureWindowPixels(HWND hWnd, int width, int height) {
-    HDC hdcWindow = GetDC(hWnd);
-    HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
+std::vector<COLORREF> CaptureCanvasPixels() {
+    // Validate render target and dimensions
+    if (!pRenderTarget || logicalWidth <= 0 || logicalHeight <= 0) {
+        OutputDebugStringW(L"CaptureCanvasPixels: Invalid render target or dimensions\n");
+        return {};
+    }
 
-    HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
+    // Create a render-target bitmap (GPU-resident)
+    D2D1_SIZE_U size = D2D1::SizeU(static_cast<UINT32>(logicalWidth), static_cast<UINT32>(logicalHeight));
+    D2D1_BITMAP_PROPERTIES1 renderBitmapProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f, 96.0f // Standard DPI
+    );
 
-    SelectObject(hdcMemDC, hBitmap);
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> renderBitmap;
+    HRESULT hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &renderBitmapProps, &renderBitmap);
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"CaptureCanvasPixels: Failed to create render bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return {};
+    }
 
-    BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY);
+    // Create a temporary device context for rendering
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> captureContext;
+    hr = g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &captureContext);
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"CaptureCanvasPixels: Failed to create device context, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return {};
+    }
 
-    BITMAPINFO bmi = {};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = width;
-    bmi.bmiHeader.biHeight = -height; // Top-down
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
+    // Render layers to the render bitmap
+    captureContext->SetTarget(renderBitmap.Get());
+    captureContext->BeginDraw();
+    captureContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f)); // Match TRenderLayers
 
-    std::vector<COLORREF> pixels(width * height);
-    GetDIBits(hdcMemDC, hBitmap, 0, height, pixels.data(), &bmi, DIB_RGB_COLORS);
+    D2D1_RECT_F destRect = D2D1::RectF(0, 0, logicalWidth, logicalHeight);
+    captureContext->DrawBitmap(layers[layerIndex].pBitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
 
-    DeleteObject(hBitmap);
-    DeleteDC(hdcMemDC);
-    ReleaseDC(hWnd, hdcWindow);
+    hr = captureContext->EndDraw();
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"CaptureCanvasPixels: EndDraw failed, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return {};
+    }
 
+    // Create a CPU-readable bitmap
+    D2D1_BITMAP_PROPERTIES1 cpuBitmapProps = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f, 96.0f
+    );
+
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> cpuBitmap;
+    hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &cpuBitmapProps, &cpuBitmap);
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"CaptureCanvasPixels: Failed to create CPU-readable bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return {};
+    }
+
+    // Copy render bitmap to CPU-readable bitmap
+    hr = cpuBitmap->CopyFromBitmap(nullptr, renderBitmap.Get(), nullptr);
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"CaptureCanvasPixels: Failed to copy bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return {};
+    }
+
+    // Map the CPU-readable bitmap
+    D2D1_MAPPED_RECT mappedRect;
+    hr = cpuBitmap->Map(D2D1_MAP_OPTIONS_READ, &mappedRect);
+    if (FAILED(hr)) {
+        OutputDebugStringW((L"CaptureCanvasPixels: Failed to map CPU-readable bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+        return {};
+    }
+
+    // Convert to COLORREF (BGRA to RGB)
+    std::vector<COLORREF> pixels(static_cast<size_t>(logicalWidth) * logicalHeight);
+    BYTE* src = mappedRect.bits;
+    for (size_t i = 0; i < pixels.size(); ++i) {
+        BYTE b = src[i * 4 + 0];
+        BYTE g = src[i * 4 + 1];
+        BYTE r = src[i * 4 + 2];
+        BYTE a = src[i * 4 + 3];
+        pixels[i] = RGB(r, g, b); // Ignore alpha for COLORREF
+    }
+
+    cpuBitmap->Unmap();
+    OutputDebugStringW((L"CaptureCanvasPixels: Captured " + std::to_wstring(logicalWidth) + L"x" +
+        std::to_wstring(logicalHeight) + L" pixels\n").c_str());
     return pixels;
 }

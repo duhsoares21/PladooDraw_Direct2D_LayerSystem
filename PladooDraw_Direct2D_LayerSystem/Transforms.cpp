@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Constants.h"
 #include "Layers.h"
+#include "Main.h"
 #include "Tools.h"
 #include "Transforms.h"
 
@@ -34,11 +35,11 @@ void TZoom() {
     int newWidth = static_cast<int>(width * zoomFactor);
     int newHeight = static_cast<int>(height * zoomFactor);
 
-    // Obter o retângulo do cliente da janela pai
+    // Obter o retangulo do cliente da janela pai
     RECT parentRect;
     GetClientRect(GetParent(docHWND), &parentRect); // usa HWND pai
 
-    // Centro da área do cliente do pai
+    // Centro da area do cliente do pai
     int parentWidth = parentRect.right - parentRect.left;
     int parentHeight = parentRect.bottom - parentRect.top;
 
@@ -60,7 +61,9 @@ void TZoom() {
         SWP_NOZORDER | SWP_NOACTIVATE
     );
 
-    // Força repaint da janela filha
+    //Resize();
+
+    // Forca repaint da janela filha
     InvalidateRect(docHWND, NULL, TRUE);
     UpdateWindow(docHWND);
 
