@@ -13,7 +13,8 @@ extern "C" __declspec(dllexport) void SetSelectedTool(int pselectedTool);
 extern "C" __declspec(dllexport) void __stdcall SetFont();
 
 extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathAnsi);
-extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDllW(LPWSTR lppath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 
 extern "C" __declspec(dllexport) void CreateLogData(std::string fileName, std::string content);
 
@@ -32,11 +33,12 @@ extern "C" __declspec(dllexport) void IncreaseBrushSize(float sizeIncrement);
 extern "C" __declspec(dllexport) void DecreaseBrushSize(float sizeIncrement);
 
 extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton);
-extern "C" __declspec(dllexport) HRESULT AddLayer(bool fromFile);	
+extern "C" __declspec(dllexport) void RemoveLayerButton();
+extern "C" __declspec(dllexport) HRESULT AddLayer(bool fromFile, int currentLayer);
 extern "C" __declspec(dllexport) HRESULT RemoveLayer();
-extern "C" __declspec(dllexport) HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 extern "C" __declspec(dllexport) int GetLayer();
 extern "C" __declspec(dllexport) void SetLayer(int index);
+extern "C" __declspec(dllexport) int GetActiveLayersCount();
 extern "C" __declspec(dllexport) void ReorderLayerUp();
 extern "C" __declspec(dllexport) void ReorderLayerDown();
 extern "C" __declspec(dllexport) int LayersCount();

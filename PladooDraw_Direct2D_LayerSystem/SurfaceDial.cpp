@@ -61,16 +61,19 @@ void InitializeSurfaceDial(HWND hwnd)
         unk.put_void()  
     ));  
     g_controller = unk.as<RadialController>();  
+    auto menu = g_controller.Menu();
 
     static std::vector<RadialControllerMenuItem> g_menuItems;
         
     auto zoom = RadialControllerMenuItem::CreateFromKnownIcon(L"Zoom", RadialControllerMenuKnownIcon::Zoom);
     auto brushSize = RadialControllerMenuItem::CreateFromKnownIcon(L"Brush Size", RadialControllerMenuKnownIcon::InkThickness);
 
+    g_menuItems.clear();
+
     g_menuItems.push_back(zoom);
     g_menuItems.push_back(brushSize);
 
-    auto menu = g_controller.Menu();
+    menu.Items().Clear();
 
     for (const auto& item : g_menuItems) {
         menu.Items().Append(item);

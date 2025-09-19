@@ -3,10 +3,10 @@
 #include "Structs.h"
 
 extern int TLayersCount();
-extern HRESULT TAddLayer(bool fromFile);
+extern HRESULT TAddLayer(bool fromFile, int currentLayer);
 extern void TAddLayerButton(HWND layerButton);
+extern void TRemoveLayerButton();
 extern HRESULT TRemoveLayer();
-extern HRESULT __stdcall TRecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
 extern int TGetLayer();
 extern void TSetLayer(int index);
 extern void TReorderLayerUp();

@@ -68,7 +68,7 @@ extern bool isWritingText;
 extern bool isPaintBucket;
 
 extern std::vector<LayerOrder> layersOrder;
-extern std::vector<Layer> layers;
+extern std::vector<std::optional<Layer>> layers;
 
 extern std::vector<ACTION> Actions;
 extern std::vector<ACTION> RedoActions;
@@ -77,7 +77,7 @@ extern std::vector<std::pair<int, int>> pixelsToFill;
 
 extern int width, height;
 
-extern std::vector<LayerButton> LayerButtons;
+extern std::vector<std::optional<LayerButton>> LayerButtons;
 
 extern POINT mouseLastClickPosition;
 

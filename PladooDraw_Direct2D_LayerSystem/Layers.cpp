@@ -12,7 +12,10 @@ int TLayersCount() {
     return layers.size();
 }
 
-HRESULT TAddLayer(bool fromFile = false) {
+HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
+
+    std::cout << "|---TADDLAYER--| :: " << currentLayer << "\n";
+
     // Use logical size (not physical/zoomed size from pRenderTarget)
     D2D1_SIZE_F size = D2D1::SizeF(logicalWidth, logicalHeight);
 
@@ -43,7 +46,7 @@ HRESULT TAddLayer(bool fromFile = false) {
     pRenderTarget->EndDraw();
 
     // Add to layers
-    Layer layer = { pBitmap };
+    Layer layer = { currentLayer, pBitmap };
     layers.emplace_back(layer);
 
     if (!fromFile) {
@@ -113,107 +116,52 @@ void TAddLayerButton(HWND layerButton) {
 
     layerDeviceContext->SetTarget(targetBitmap.Get());
 
+    int LayerID = GetDlgCtrlID(layerButton);
+
+    std::cout << "\n\nLAYER ID\n\n" << LayerID << "\n\n";
+
     // Store the device context and swap chain
-    LayerButtons.push_back({
+    LayerButtons.push_back(LayerButton{
+        LayerID,
         layerButton,
         layerDeviceContext.Get(),
         layerSwapChain.Get(),
     });
 
-    TDrawLayerPreview(GetDlgCtrlID(layerButton));
+    TDrawLayerPreview(LayerID);
+}
+
+void TRemoveLayerButton() {
+    HCreateLogData("error.log", "---TREMOVELAYERBUTTON--| :: " + std::to_string(layerIndex));
+
+    if (!LayerButtons[layerIndex].has_value()) return;  
+    
+    DestroyWindow(LayerButtons[layerIndex].value().button);
+    LayerButtons[layerIndex].reset();
+
+    size_t count = std::count_if(layers.begin(), layers.end(), [](auto& l) { return l.has_value(); });
+
+    std::vector<LayerButton> result;
+    result.reserve(count);
+    
+    for (auto layerButton : LayerButtons) {
+        if (layerButton.has_value()) {
+            result.push_back(*layerButton);
+        }
+    }
+
+    for (size_t i = 0; i < result.size(); i++) {
+        MoveWindow(result[i].button, 0, i * 90, 90, 90, true);
+    }
 }
 
 HRESULT TRemoveLayer() {
+    std::cout << "|---TREMOVELAYER--| :: " << layerIndex << "\n";
 
-    int idx = layerIndex;
-
-    // Validate layerIndex
-    if (layerIndex < 0 || layerIndex >= static_cast<int>(layers.size()))
-        return E_INVALIDARG;
-
-    // Remove the layer
-    layers.erase(layers.begin() + layerIndex);
-
-    // Remove from layersOrder
-    layersOrder.erase(
-        std::remove_if(layersOrder.begin(), layersOrder.end(),
-            [idx](const LayerOrder& lo) { return lo.layerIndex == layerIndex; }),
-        layersOrder.end()
-    );
-
-    // Update remaining layer indices
-    for (auto& lo : layersOrder) {
-        if (lo.layerIndex > layerIndex)
-            lo.layerIndex--;
-        lo.layerOrder--; // only if this is necessary
+    if (layers[layerIndex].has_value()) {
+        layers[layerIndex].reset();
     }
-
-    // Remove associated Actions
-    Actions.erase(
-        std::remove_if(Actions.begin(), Actions.end(),
-            [idx](const ACTION& a) { return a.Layer == layerIndex; }),
-        Actions.end()
-    );
-
-    // Shift layers in Actions
-    for (auto& a : Actions) {
-        if (a.Layer > layerIndex)
-            a.Layer--;
-    }
-
-    // Ensure at least 1 layer exists
-    if (layers.empty())
-        TAddLayer();
-
-    return S_OK;
-}
-
-HRESULT __stdcall TRecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
-    for (auto layerButton : LayerButtons) {
-        DestroyWindow(layerButton.button);
-    }
-
-    LayerButtons.clear();
-
-    int maxLayer = layers.size();
-
-    for (int i = 0; i < maxLayer; ++i) {
-        int yPos = btnHeight * i;
-        HWND button = CreateWindowEx(
-            0,                           // dwExStyle
-            L"Button",                   // lpClassName
-            msgText,                     // lpWindowName
-            WS_CHILD | WS_VISIBLE | BS_BITMAP, // dwStyle
-            0,                           // x
-            yPos,                        // y
-            btnWidth,                          // nWidth
-            btnHeight,                   // nHeight
-            hWndLayer,                   // hWndParent
-            (HMENU)(intptr_t)layerID,    // hMenu (control ID)
-            hLayerInstance,              // hInstance
-            NULL                         // lpParam
-        );
-
-        if (button == NULL) {
-            DWORD dwError = GetLastError();
-            std::string errorMsg = "Failed to create button for layer " + std::to_string(i) + ": Error " + std::to_string(dwError);
-            HCreateLogData("error.log", errorMsg);
-            return E_FAIL;
-        }
-
-        ShowWindow(button, SW_SHOWDEFAULT);
-        UpdateWindow(button);
-
-        hLayerButtons[layerID] = button;
-
-        // Add button to LayerButtons
-        TAddLayerButton(button);
-
-        if (i == maxLayer - 1) {
-            layerID = i; // Atualiza layerID para o último índice usado
-        }
-    }
-
+    
     return S_OK;
 }
 
@@ -222,8 +170,8 @@ int TGetLayer() {
 }
 
 void TSetLayer(int index) {
+    std::cout << "|---TSETLAYER---| - " << index;
     layerIndex = index;
-    return;
 }
 
 void TReorderLayerUp() {
@@ -376,6 +324,8 @@ void TRenderActionToTarget(const ACTION& action) {
 
 void TUpdateLayers(int layerIndexTarget = -1) {
 
+    std::cout << "LIT - " << layerIndexTarget;
+
     if (layerIndex < 0 || layerIndex >= layers.size()) {
         layerIndex = 0;
     }
@@ -386,7 +336,7 @@ void TUpdateLayers(int layerIndexTarget = -1) {
 
     auto& layer = layers[layerIndexTarget];
 
-    pRenderTarget->SetTarget(layer.pBitmap.Get());
+    pRenderTarget->SetTarget(layer.value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
     pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f)); // Transparente
@@ -450,10 +400,25 @@ void TRenderLayers() {
             return a.layerOrder < b.layerOrder; // lower order drawn first
         });
 
+    /*for (size_t i = 0; i <= sortedLayers.size(); i++) {
+        int index = sortedLayers[i].layerIndex;
+        //if (index < 0 || index >= layers.size()) continue;
+        //HERE
+        std::cout << "INDEX - PRE - " << index;
+        std::cout << "INDEX - I - " << i;
+        if (index == layers[i].LayerID) {
+            //index = i;
+            std::cout << "INDEX - LOOP - " << i;
+            pRenderTarget->DrawBitmap(layers[i].pBitmap.Get());
+        }
+    }*/
+
     for (const auto& lo : sortedLayers) {
         int index = lo.layerIndex;
         if (index < 0 || index >= layers.size()) continue;
-        pRenderTarget->DrawBitmap(layers[index].pBitmap.Get());
+        if (layers[index].has_value()) {
+            pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
+        }
     }
 
     pRenderTarget->EndDraw();
@@ -465,23 +430,36 @@ void TRenderLayers() {
     if (FAILED(hr)) {
         OutputDebugStringW((L"TRenderLayers: Present failed, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
     }
-
-    TDrawLayerPreview(layerIndex);
+    
+    if (layers[layerIndex].has_value()) {
+        TDrawLayerPreview(layerIndex);
+    }
 }
 
 void TDrawLayerPreview(int currentLayer) {
-    RECT rc;
-    GetClientRect(LayerButtons[currentLayer].button, &rc);
+    HCreateLogData("error.log", std::to_string(currentLayer));
 
-    LayerButtons[currentLayer].deviceContext->BeginDraw();
-    LayerButtons[currentLayer].deviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
-    LayerButtons[currentLayer].deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+    RECT rc;
+
+    if (LayerButtons.size() == 0) {
+        return;
+    }
+
+    if (!LayerButtons[currentLayer].has_value()) return;
+
+    HWND layerbutton = LayerButtons[currentLayer].value().button;
+
+    GetClientRect(layerbutton, &rc);
+
+    LayerButtons[currentLayer].value().deviceContext->BeginDraw();
+    LayerButtons[currentLayer].value().deviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    LayerButtons[currentLayer].value().deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
 
     // If you want to draw the actual layer content, you'd do something like:
-    LayerButtons[currentLayer].deviceContext->DrawBitmap(layers[currentLayer].pBitmap.Get(), D2D1::RectF(rc.left, rc.top, rc.right, rc.bottom));
+    LayerButtons[currentLayer].value().deviceContext->DrawBitmap(layers[currentLayer].value().pBitmap.Get(), D2D1::RectF(rc.left, rc.top, rc.right, rc.bottom));
 
-    HRESULT hr = LayerButtons[currentLayer].deviceContext->EndDraw();
+    HRESULT hr = LayerButtons[currentLayer].value().deviceContext->EndDraw();
 
     // Present the swap chain for this layer window
-    LayerButtons[currentLayer].swapChain->Present(1, 0);
+    LayerButtons[currentLayer].value().swapChain->Present(1, 0);
 }

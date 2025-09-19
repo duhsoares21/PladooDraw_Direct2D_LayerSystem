@@ -165,8 +165,6 @@ HRESULT TInitializeWrite() {
 HRESULT TInitializeLayerRenderPreview() {
     TRenderLayers();
 
-    TDrawLayerPreview(layerIndex);
-
     return S_OK;
 }
 

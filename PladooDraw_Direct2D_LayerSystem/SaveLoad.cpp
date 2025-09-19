@@ -80,7 +80,7 @@ void SaveBinaryProject(const std::wstring& filename) {
     out.close();
 }
 
-void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
 
     layers.clear();
     layersOrder.clear();
@@ -88,7 +88,9 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     RedoActions.clear();
 
     for (auto layerButton : LayerButtons) {
-        DestroyWindow(layerButton.button);
+        if (layerButton.has_value()) {
+            DestroyWindow(layerButton.value().button);
+        }
     }
 
     LayerButtons.clear();
@@ -106,7 +108,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     int magic = 0, version = 0;
     in.read((char*)&magic, sizeof(magic));
     in.read((char*)&version, sizeof(version));
-
+    
     if (magic != 0x30444450 || version < 1 || version > 1) {
         HCreateLogData("error.log", "Invalid file format or version");
         in.close();
@@ -245,7 +247,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     layerIndex = 0;
 
     for (int i = 0; i <= maxLayer; ++i) {
-        HRESULT hr = TAddLayer(true);
+        HRESULT hr = TAddLayer(true, i);
         if (FAILED(hr)) {
             HCreateLogData("error.log", "Failed to add layer " + std::to_string(i) + ": HRESULT " + std::to_string(hr));
             layers.clear();
@@ -254,7 +256,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
             return;
         }
 
-        int yPos = btnHeight * layerID;
+        int yPos = btnHeight * i;
         HWND button = CreateWindowEx(
             0,                            // dwExStyle
             szButtonClass,               // lpClassName
@@ -307,6 +309,7 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
 
     for (int i = 0; i <= maxLayer; ++i) {
         TUpdateLayers(layersOrder[i].layerIndex);
+        //TDrawLayerPreview(layersOrder[i].layerIndex);
     }
 
     TRenderLayers();

@@ -10,12 +10,15 @@
 /* TOOLS */
 
 void TEraserTool(int left, int top) {
+
+    if (!layers[layerIndex].has_value()) return;
+
     if (prevLeft == -1 && prevTop == -1) {
         prevLeft = static_cast<float>(left) / zoomFactor;
         prevTop = static_cast<float>(top) / zoomFactor;
     }
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value(). pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -94,6 +97,8 @@ void TEraserTool(int left, int top) {
 }
 
 void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixelSizeRatio) {
+    if (!layers[layerIndex].has_value()) return;
+
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
     }
@@ -109,7 +114,7 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
     isDrawingBrush = true;
     isPixelMode = pixelMode;
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
 
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -206,6 +211,8 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
 }
 
 void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexColor) {
+    if (!layers[layerIndex].has_value()) return;
+
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
     }
@@ -214,14 +221,14 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
     }
 
     if (!isDrawingRectangle) {
-        TAddLayer(false);
+        TAddLayer(false, -1);
     }
 
     isDrawingRectangle = true;
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -249,6 +256,8 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
 }
 
 void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColor) {
+    if (!layers[layerIndex].has_value()) return;
+
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
     }
@@ -257,14 +266,14 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
     }
 
     if (!isDrawingEllipse) {
-        TAddLayer(false);
+        TAddLayer(false, -1);
     }
 
     isDrawingEllipse = true;
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -301,7 +310,8 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
 }
 
 void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) {
-    
+    if (!layers[layerIndex].has_value()) return;
+
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
     }
@@ -310,14 +320,14 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
     }
 
     if (!isDrawingLine) {
-        TAddLayer(false);
+        TAddLayer(false, -1);
     }
 
     isDrawingLine = true;
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -350,6 +360,8 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 }
 
 void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
+    if (!layers[layerIndex].has_value()) return;
+
     RECT rc;
     GetClientRect(docHWND, &rc);
     
@@ -409,7 +421,7 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     std::mutex drawMutex;
 
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
     for (int t = 0; t < threadCount; ++t) {
@@ -442,6 +454,8 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
 }
 
 void TWriteTool(int xInitial, int yInitial, int x, int y) {
+    if (!layers[layerIndex].has_value()) return;
+
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &pBrush);
     }
@@ -449,7 +463,7 @@ void TWriteTool(int xInitial, int yInitial, int x, int y) {
         pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
     }
 
-    pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -540,6 +554,8 @@ void TWriteTool(int xInitial, int yInitial, int x, int y) {
 }
 
 void __stdcall TSelectTool(int xInitial, int yInitial) {
+    if (!layers[layerIndex].has_value()) return;
+
     if (selectedAction) return;
 
     // Scale coordinates
@@ -563,6 +579,8 @@ void __stdcall TSelectTool(int xInitial, int yInitial) {
 }
 
 void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
+    if (!layers[layerIndex].has_value()) return;
+
     if (layerIndex < 0 || selectedIndex < 0 || selectedIndex >= Actions.size()) {
         return;
     }

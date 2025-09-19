@@ -8,13 +8,14 @@
 /* TOOLS AUX */
 
 void THandleMouseUp() {
+    if (!layers[layerIndex].has_value()) return;
 
     if (isDrawingRectangle || isDrawingEllipse || isDrawingLine || isWritingText) {
 
         ComPtr<ID2D1SolidColorBrush> brush;
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(currentColor), &brush);
 
-        pRenderTarget->SetTarget(layers[layerIndex].pBitmap.Get());
+        pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
         pRenderTarget->BeginDraw();
         pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -132,10 +133,11 @@ void THandleMouseUp() {
     }
 
     TRenderLayers();
-    //TDrawLayerPreview(layerIndex);
 }
 
 void TUndo() {
+    if (!layers[layerIndex].has_value()) return;
+
     if (Actions.size() > 0) {
         ACTION lastAction = Actions.back();
         RedoActions.push_back(lastAction);
@@ -143,11 +145,12 @@ void TUndo() {
 
         TUpdateLayers(layerIndex);
         TRenderLayers();
-        //TDrawLayerPreview(layerIndex);
     }
 }
 
 void TRedo() {
+    if (!layers[layerIndex].has_value()) return;
+
     if (RedoActions.size() > 0) {
         ACTION action = RedoActions.back();
         Actions.push_back(action);
@@ -155,7 +158,6 @@ void TRedo() {
 
         TUpdateLayers(layerIndex);
         TRenderLayers();
-        //TDrawLayerPreview(layerIndex);
     }
 }
 
@@ -290,7 +292,9 @@ std::vector<COLORREF> CaptureCanvasPixels() {
     captureContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f)); // Match TRenderLayers
 
     D2D1_RECT_F destRect = D2D1::RectF(0, 0, logicalWidth, logicalHeight);
-    captureContext->DrawBitmap(layers[layerIndex].pBitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    if (layers[layerIndex].has_value()) {
+        captureContext->DrawBitmap(layers[layerIndex].value().pBitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    }
 
     hr = captureContext->EndDraw();
     if (FAILED(hr)) {

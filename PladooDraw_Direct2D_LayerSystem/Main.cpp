@@ -108,7 +108,7 @@ void __stdcall SaveProjectDll(const char* pathAnsi) {
     SaveBinaryProject(wpath);
 }
 
-void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int* layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
     std::wstring wpath;
     int size_needed = MultiByteToWideChar(CP_ACP, 0, apath, -1, nullptr, 0);
     if (size_needed > 0) {
@@ -118,7 +118,60 @@ void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInst
             wpath.pop_back(); // Remove extra null terminator
         }
     }
-    LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, *layerID, L"Button", msgText);
+
+    // Print parameters
+    std::cout << "\n\n[LoadProjectDll]\n";
+    std::cout << "apath: " << (apath ? apath : "(null)") << "\n";
+    std::cout << "hWndLayer: " << hWndLayer << "\n";
+    std::cout << "hLayerInstance: " << hLayerInstance << "\n";
+    std::cout << "btnWidth: " << btnWidth << "\n";
+    std::cout << "btnHeight: " << btnHeight << "\n";
+    std::cout << "hLayerButtons: " << hLayerButtons << " (value: "
+        << (hLayerButtons ? *hLayerButtons : 0) << ")\n";
+    std::cout << "layerID: " << layerID << " (value: "
+        << (layerID ? layerID : 0) << ")\n";
+
+    std::wcout << L"szButtonClass: "
+        << (szButtonClass ? szButtonClass : L"(null)") << L"\n";
+
+    std::wcout << L"msgText: "
+        << (msgText ? msgText : L"(null)") << L"\n";
+    std::wcout << L"Converted wpath: " << wpath << L"\n\n";
+
+    LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, L"Button", msgText);
+}
+
+void __stdcall LoadProjectDllW(LPWSTR wpath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+
+    std::wstring widePath;
+    if (wpath) {
+        // Safely compute length (up to a max, e.g., MAX_PATH or 1024)
+        size_t maxLen = MAX_PATH;
+        size_t len = 0;
+        while (len < maxLen && wpath[len] != L'\0') {
+            len++;
+        }
+        widePath.assign(wpath, len); // Copy exactly 'len' characters
+    }
+
+    // Print parameters
+    std::wcout << L"\n\n[LoadProjectDllW]\n";
+    std::wcout << L"wpath: " << (wpath ? wpath : L"(null)") << L"\n";
+    std::cout << "hWndLayer: " << hWndLayer << "\n";
+    std::cout << "hLayerInstance: " << hLayerInstance << "\n";
+    std::cout << "btnWidth: " << btnWidth << "\n";
+    std::cout << "btnHeight: " << btnHeight << "\n";
+    std::cout << "hLayerButtons: " << hLayerButtons << " (value: "
+        << (hLayerButtons ? *hLayerButtons : 0) << ")\n";
+    std::cout << "layerID: " << layerID << " (value: "
+        << (layerID ? layerID : 0) << ")\n";
+
+    std::wcout << L"szButtonClass: "
+        << (szButtonClass ? szButtonClass : L"(null)") << L"\n";
+    std::wcout << L"msgText: "
+        << (msgText ? msgText : L"(null)") << L"\n\n";
+
+    LoadBinaryProject(widePath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, L"Button", msgText);
 }
 
 /* ACTIONS */
@@ -177,8 +230,9 @@ void DecreaseBrushSize(float sizeRatio) {
 
 /* LAYERS */
 
-HRESULT AddLayer(bool fromFile=false) {
-    return TAddLayer(fromFile);
+HRESULT AddLayer(bool fromFile=false, int currentLayer = -1) {
+    std::cout << "\n\nADD LAYER ASM\n\n" << currentLayer << "\n\n";
+    return TAddLayer(fromFile, currentLayer);
 }
 
 int LayersCount() {
@@ -189,12 +243,12 @@ void AddLayerButton(HWND layerButton) {
     TAddLayerButton(layerButton);
 }
 
-HRESULT RemoveLayer() {
-    return TRemoveLayer();
+void RemoveLayerButton() {
+    TRemoveLayerButton();
 }
 
-HRESULT __stdcall RecreateLayers(HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int& layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
-    return TRecreateLayers(hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, szButtonClass, msgText);
+HRESULT RemoveLayer() {
+    return TRemoveLayer();
 }
 
 int GetLayer() {
@@ -203,6 +257,10 @@ int GetLayer() {
 
 void SetLayer(int index) {
     TSetLayer(index);
+}
+
+int GetActiveLayersCount() {
+    return HGetActiveLayersCount();
 }
 
 void ReorderLayerUp() {
@@ -226,6 +284,7 @@ void RenderLayers() {
 }
 
 void DrawLayerPreview(int currentLayer) {
+    std::cout << "ASSEMBLY LAYER PREVIEW - " << currentLayer;
     TDrawLayerPreview(currentLayer);
 }
 

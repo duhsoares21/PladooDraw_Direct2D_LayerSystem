@@ -1,5 +1,6 @@
 #pragma once
 
+extern int HGetActiveLayersCount();
 extern void HSetSelectedTool(int pselectedTool);
 extern void HCreateLogData(std::string fileName, std::string content);
 extern D2D1_COLOR_F HGetRGBColor(COLORREF color);

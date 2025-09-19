@@ -2,6 +2,11 @@
 #include "Constants.h"
 #include "Helpers.h"
 
+int HGetActiveLayersCount() {
+    size_t count = std::count_if(layers.begin(), layers.end(), [](auto& l) { return l.has_value(); });
+    return count;
+}
+
 void HSetSelectedTool(int pselectedTool) {
     selectedTool = pselectedTool;
 }
@@ -77,10 +82,12 @@ void HCleanup() {
     SafeRelease(&pRenderTargetLayer);
     SafeRelease(pD2DFactory.GetAddressOf());
     SafeRelease(pD2DTargetBitmap.GetAddressOf());
-    SafeRelease(pDWriteFactory.GetAddressOf());
+    SafeRelease(pDWriteFactory.GetAddressOf());  
 
     for (auto& layer : layers) {
-        layer.pBitmap.Reset();
+        if (layer.has_value()) {
+            layer.value().pBitmap.Reset();
+        }
     }
 
     layers.clear();

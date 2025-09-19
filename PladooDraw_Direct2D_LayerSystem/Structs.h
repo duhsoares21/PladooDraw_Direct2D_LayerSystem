@@ -35,6 +35,7 @@ struct ACTION {
 };
 
 struct Layer {
+    int LayerID;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
 };
 
@@ -72,6 +73,7 @@ namespace std {
 }
 
 struct LayerButton {
+    int LayerID;
     HWND button;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;

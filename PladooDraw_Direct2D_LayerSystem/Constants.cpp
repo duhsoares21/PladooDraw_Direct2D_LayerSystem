@@ -66,7 +66,7 @@ bool isPaintBucket = false;
 bool isWritingText = false;
 
 std::vector<LayerOrder> layersOrder;
-std::vector<Layer> layers;
+std::vector<std::optional<Layer>> layers;
 
 std::vector<ACTION> Actions;
 std::vector<ACTION> RedoActions;
@@ -75,7 +75,7 @@ std::vector<std::pair<int, int>> pixelsToFill;
 
 int width, height;
 
-std::vector<LayerButton> LayerButtons;
+std::vector<std::optional<LayerButton>> LayerButtons;
 
 POINT mouseLastClickPosition = { 0, 0 };
 
