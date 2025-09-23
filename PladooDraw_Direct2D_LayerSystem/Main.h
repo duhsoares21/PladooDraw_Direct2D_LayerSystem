@@ -6,6 +6,7 @@ extern "C" __declspec(dllexport) void __stdcall Resize();
 
 extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio);
 extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
+extern "C" __declspec(dllexport) void InitTextTool();
 extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview();
 extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
 
@@ -54,5 +55,5 @@ extern "C" __declspec(dllexport) void RectangleTool(int left, int top, int right
 extern "C" __declspec(dllexport) void EllipseTool(int left, int top, int right, int bottom, unsigned int hexColor);
 extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor);
 extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd);
-extern "C" __declspec(dllexport) void WriteTool(int left, int top, int right, int bottom);
+extern "C" __declspec(dllexport) void WriteTool(int x, int y);
 extern "C" __declspec(dllexport) void Cleanup();

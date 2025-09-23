@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Constants.h"
 #include "Helpers.h"
+#include "Tools.h"
 
 int HGetActiveLayersCount() {
     size_t count = std::count_if(layers.begin(), layers.end(), [](auto& l) { return l.has_value(); });
@@ -76,17 +77,23 @@ void HPrintHResultError(HRESULT hr) {
 }
 
 void HCleanup() {
-    SafeRelease(pBrush.GetAddressOf());
-    SafeRelease(&pRenderTarget);
-    SafeRelease(hWndLayerRenderTarget.GetAddressOf());
-    SafeRelease(&pRenderTargetLayer);
-    SafeRelease(pD2DFactory.GetAddressOf());
-    SafeRelease(pD2DTargetBitmap.GetAddressOf());
-    SafeRelease(pDWriteFactory.GetAddressOf());  
+    pBrush.Reset();
+    pRenderTarget.Reset();
+    hWndLayerRenderTarget.Reset();
+    pRenderTargetLayer.Reset();
+    pD2DFactory.Reset();
+    pD2DTargetBitmap.Reset();
+    pDWriteFactory.Reset();
 
     for (auto& layer : layers) {
         if (layer.has_value()) {
             layer.value().pBitmap.Reset();
+        }
+    }
+
+    for (auto& layerbuttons : LayerButtons) {
+        if (layerbuttons.has_value()) {
+            layerbuttons.reset();
         }
     }
 

@@ -65,7 +65,7 @@ void __stdcall Resize() {
     // Create new bitmap from surface
     D2D1_BITMAP_PROPERTIES1 bitmapProps = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
         dpiX, dpiY
     );
     hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.GetAddressOf());
@@ -84,6 +84,10 @@ HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int p
 
 HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio) {
     return TInitializeDocument(hWnd, pWidth, pHeight, pPixelSizeRatio);
+}
+
+void InitTextTool() {
+
 }
 
 HRESULT InitializeLayerRenderPreview() {
@@ -119,25 +123,6 @@ void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInst
         }
     }
 
-    // Print parameters
-    std::cout << "\n\n[LoadProjectDll]\n";
-    std::cout << "apath: " << (apath ? apath : "(null)") << "\n";
-    std::cout << "hWndLayer: " << hWndLayer << "\n";
-    std::cout << "hLayerInstance: " << hLayerInstance << "\n";
-    std::cout << "btnWidth: " << btnWidth << "\n";
-    std::cout << "btnHeight: " << btnHeight << "\n";
-    std::cout << "hLayerButtons: " << hLayerButtons << " (value: "
-        << (hLayerButtons ? *hLayerButtons : 0) << ")\n";
-    std::cout << "layerID: " << layerID << " (value: "
-        << (layerID ? layerID : 0) << ")\n";
-
-    std::wcout << L"szButtonClass: "
-        << (szButtonClass ? szButtonClass : L"(null)") << L"\n";
-
-    std::wcout << L"msgText: "
-        << (msgText ? msgText : L"(null)") << L"\n";
-    std::wcout << L"Converted wpath: " << wpath << L"\n\n";
-
     LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, L"Button", msgText);
 }
 
@@ -153,23 +138,6 @@ void __stdcall LoadProjectDllW(LPWSTR wpath, HWND hWndLayer, HINSTANCE hLayerIns
         }
         widePath.assign(wpath, len); // Copy exactly 'len' characters
     }
-
-    // Print parameters
-    std::wcout << L"\n\n[LoadProjectDllW]\n";
-    std::wcout << L"wpath: " << (wpath ? wpath : L"(null)") << L"\n";
-    std::cout << "hWndLayer: " << hWndLayer << "\n";
-    std::cout << "hLayerInstance: " << hLayerInstance << "\n";
-    std::cout << "btnWidth: " << btnWidth << "\n";
-    std::cout << "btnHeight: " << btnHeight << "\n";
-    std::cout << "hLayerButtons: " << hLayerButtons << " (value: "
-        << (hLayerButtons ? *hLayerButtons : 0) << ")\n";
-    std::cout << "layerID: " << layerID << " (value: "
-        << (layerID ? layerID : 0) << ")\n";
-
-    std::wcout << L"szButtonClass: "
-        << (szButtonClass ? szButtonClass : L"(null)") << L"\n";
-    std::wcout << L"msgText: "
-        << (msgText ? msgText : L"(null)") << L"\n\n";
 
     LoadBinaryProject(widePath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, L"Button", msgText);
 }
@@ -231,7 +199,6 @@ void DecreaseBrushSize(float sizeRatio) {
 /* LAYERS */
 
 HRESULT AddLayer(bool fromFile=false, int currentLayer = -1) {
-    std::cout << "\n\nADD LAYER ASM\n\n" << currentLayer << "\n\n";
     return TAddLayer(fromFile, currentLayer);
 }
 
@@ -284,7 +251,6 @@ void RenderLayers() {
 }
 
 void DrawLayerPreview(int currentLayer) {
-    std::cout << "ASSEMBLY LAYER PREVIEW - " << currentLayer;
     TDrawLayerPreview(currentLayer);
 }
 
@@ -340,8 +306,8 @@ void PaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     TPaintBucketTool(mouseX, mouseY, fillColor, hWnd);
 }
 
-void WriteTool(int left, int top, int right, int bottom) {
-    TWriteTool(left, top, right, bottom);
+void WriteTool(int x, int y) {
+    TWriteTool(x, y);
 }
 
 void __stdcall SelectTool(int xInitial, int yInitial) {
@@ -357,5 +323,5 @@ void __stdcall UnSelectTool() {
 }
 
 void Cleanup() {
-    HCleanup();
+    HCleanup(); 
 }

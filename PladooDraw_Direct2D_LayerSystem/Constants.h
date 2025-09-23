@@ -17,13 +17,18 @@ extern Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush;
 extern Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
 extern Microsoft::WRL::ComPtr<ID2D1Factory1> pD2DFactory;
 extern Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
-extern ID2D1DeviceContext* pRenderTarget;
-extern ID2D1DeviceContext* pRenderTargetLayer;
+
+extern Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTarget;
+extern Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTargetLayer;
 
 extern Microsoft::WRL::ComPtr<ID3D11Device> g_pD3DDevice;
 extern Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
 extern Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
 extern Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
+
+extern Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;
+extern Microsoft::WRL::ComPtr<IDCompositionTarget> g_pDCompTarget;
+extern Microsoft::WRL::ComPtr<IDCompositionVisual> g_pDCompVisual;
 
 extern Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
 
@@ -64,8 +69,15 @@ extern bool isDrawingRectangle;
 extern bool isDrawingEllipse;
 extern bool isDrawingBrush;
 extern bool isDrawingLine;
+extern bool isDrawingWindowText;
 extern bool isWritingText;
 extern bool isPaintBucket;
+
+extern HWND hTextInput;
+extern bool isWritingText;
+extern WNDPROC oldEditProc;
+
+extern Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 extern std::vector<LayerOrder> layersOrder;
 extern std::vector<std::optional<Layer>> layers;

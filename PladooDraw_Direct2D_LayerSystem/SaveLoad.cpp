@@ -47,7 +47,25 @@ void SaveBinaryProject(const std::wstring& filename) {
         out.write((char*)&a.Layer, sizeof(a.Layer));
         out.write((char*)&a.Position, sizeof(a.Position));
         if (a.Tool == TWrite) {
-            out.write(reinterpret_cast<const char*>(a.Text), sizeof(a.Text));
+            uint32_t textLen = static_cast<uint32_t>(a.Text.size());
+            out.write(reinterpret_cast<const char*>(&textLen), sizeof(textLen));
+            if (textLen > 0) {
+                out.write(reinterpret_cast<const char*>(a.Text.data()),
+                    textLen * sizeof(wchar_t));
+            }
+
+            uint32_t ffLen = static_cast<uint32_t>(a.FontFamily.size());
+            out.write(reinterpret_cast<const char*>(&ffLen), sizeof(ffLen));
+            if (ffLen > 0) {
+                out.write(reinterpret_cast<const char*>(a.FontFamily.data()),
+                    ffLen * sizeof(wchar_t));
+            }
+
+            out.write(reinterpret_cast<const char*>(&a.FontSize), sizeof(a.FontSize));
+            out.write(reinterpret_cast<const char*>(&a.FontWeight), sizeof(a.FontWeight));
+            out.write(reinterpret_cast<const char*>(&a.FontItalic), sizeof(a.FontItalic));
+            out.write(reinterpret_cast<const char*>(&a.FontUnderline), sizeof(a.FontUnderline));
+            out.write(reinterpret_cast<const char*>(&a.FontStrike), sizeof(a.FontStrike));
         }
         out.write((char*)&a.Ellipse, sizeof(a.Ellipse));
         out.write((char*)&a.FillColor, sizeof(a.FillColor));
@@ -94,6 +112,9 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     }
 
     LayerButtons.clear();
+    
+    HCleanup();
+    layerID = 0;
 
     std::ifstream in(filename, std::ios::binary);
 
@@ -101,9 +122,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
         HCreateLogData("error.log", "Failed to open file for reading: " + std::string(filename.begin(), filename.end()));
         return;
     }
-
-    HCleanup();
-    layerID = 0;
 
     int magic = 0, version = 0;
     in.read((char*)&magic, sizeof(magic));
@@ -178,7 +196,33 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
 
         in.read((char*)&a.Position, sizeof(a.Position));
         if (a.Tool == TWrite) {
-            in.read(reinterpret_cast<char*>(&a.Text), sizeof(a.Text));
+            uint32_t length = 0;
+            in.read(reinterpret_cast<char*>(&length), sizeof(length));
+            if (!in.good() || length > 1000000) { /* handle error */ }
+            a.Text.resize(length);
+            if (length > 0) {
+                in.read(reinterpret_cast<char*>(a.Text.data()), length * sizeof(wchar_t));
+            }
+            else {
+                a.Text.clear();
+            }
+
+            length = 0;
+            in.read(reinterpret_cast<char*>(&length), sizeof(length));
+            if (!in.good() || length > 1000000) { /* handle error */ }
+            a.FontFamily.resize(length);
+            if (length > 0) {
+                in.read(reinterpret_cast<char*>(a.FontFamily.data()), length * sizeof(wchar_t));
+            }
+            else {
+                a.FontFamily.clear();
+            }
+
+            in.read(reinterpret_cast<char*>(&a.FontSize), sizeof(a.FontSize));
+            in.read(reinterpret_cast<char*>(&a.FontWeight), sizeof(a.FontWeight));
+            in.read(reinterpret_cast<char*>(&a.FontItalic), sizeof(a.FontItalic));
+            in.read(reinterpret_cast<char*>(&a.FontUnderline), sizeof(a.FontUnderline));
+            in.read(reinterpret_cast<char*>(&a.FontStrike), sizeof(a.FontStrike));
         }
         in.read((char*)&a.Ellipse, sizeof(a.Ellipse));
         in.read((char*)&a.FillColor, sizeof(a.FillColor));

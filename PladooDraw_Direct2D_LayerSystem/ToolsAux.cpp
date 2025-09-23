@@ -10,7 +10,7 @@
 void THandleMouseUp() {
     if (!layers[layerIndex].has_value()) return;
 
-    if (isDrawingRectangle || isDrawingEllipse || isDrawingLine || isWritingText) {
+    if (isDrawingRectangle || isDrawingEllipse || isDrawingLine || isDrawingWindowText) {
 
         ComPtr<ID2D1SolidColorBrush> brush;
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(currentColor), &brush);
@@ -32,7 +32,7 @@ void THandleMouseUp() {
             action.Color = currentColor;
 
             rectangle = D2D1::RectF(0, 0, 0, 0);
-            isDrawingRectangle = false;
+            //isDrawingRectangle = false;
         }
 
         if (isDrawingEllipse) {
@@ -45,7 +45,7 @@ void THandleMouseUp() {
             action.Color = currentColor;
 
             ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
-            isDrawingEllipse = false;
+            //isDrawingEllipse = false;
         }
 
         if (isDrawingLine) {
@@ -57,37 +57,24 @@ void THandleMouseUp() {
             action.Color = currentColor;
             action.BrushSize = currentBrushSize;
 
-            isDrawingLine = false;
+            //isDrawingLine = false;
         }
 
-        if (isWritingText) {
-            HINSTANCE hInstance = GetModuleHandle(NULL);
-            
-            HWND hTextArea = CreateWindowEx(
-                0,                    // extended styles
-                L"EDIT",              // class name for edit control
-                L"HELLO",                  // initial text
-                WS_CHILD | WS_VISIBLE | WS_BORDER |
-                ES_MULTILINE | WS_VSCROLL | ES_AUTOVSCROLL | ES_LEFT, // style
-                60, 60,                // x, y
-                textArea.right - textArea.left, textArea.bottom - textArea.top ,             // width, height
-                docHWND,                 // parent window
-                (HMENU)200,           // control ID
-                hInstance,        // instance handle
-                NULL                  // no extra params
-            );
+        if (isDrawingWindowText) {
+            if (!isWritingText) {
+                float scaledLeft = static_cast<float>(textArea.left) / zoomFactor;
+                float scaledTop = static_cast<float>(textArea.top) / zoomFactor;
+                float scaledRight = static_cast<float>(textArea.right) / zoomFactor;
+                float scaledBottom = static_cast<float>(textArea.bottom) / zoomFactor;
 
-            RedrawWindow(docHWND, nullptr, nullptr, RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN);
-           
-            if (!hTextArea)
-            {
-                DWORD err = GetLastError();
-                std::wcout << L"Failed to create text area: " << err << std::endl;
-            }
-            else
-            {
-                HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-                SendMessage(hTextArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+                int width = static_cast<int>(scaledRight - scaledLeft);
+                int height = static_cast<int>(scaledBottom - scaledTop);
+
+                TInitTextTool(scaledLeft, scaledTop, width, height);
+
+                RedrawWindow(docHWND, nullptr, nullptr, RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN);
+
+                isWritingText = true;
             }
         }
 
@@ -95,7 +82,14 @@ void THandleMouseUp() {
 
         if (isDrawingRectangle || isDrawingEllipse || isDrawingLine) {
             layersOrder.pop_back();
+            if (layers[TLayersCount() - 1].has_value()) {
+                layers[TLayersCount() - 1].reset();
+            }
             layers.pop_back();
+
+            isDrawingRectangle = false;
+            isDrawingEllipse = false;
+            isDrawingLine = false;
         }
 
         Actions.push_back(action);
@@ -244,6 +238,7 @@ bool HitTestAction(const ACTION& action, float x, float y) {
     case TBrush:
         return IsPointNearEdge(action.FreeForm.vertices, x, y);
     case TRectangle:
+    case TWrite:
         return IsPointInsideRect(action.Position, x, y);
     case TEllipse:
         return IsPointInsideEllipse(action.Ellipse, x, y);

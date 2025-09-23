@@ -6,6 +6,7 @@
 #include "Tools.h"
 #include "ToolsAux.h"
 #include "Layers.h"
+#include "Main.h"
 
 /* TOOLS */
 
@@ -228,7 +229,7 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+    pRenderTarget->SetTarget(layers[TLayersCount() - 1].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -273,7 +274,7 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+    pRenderTarget->SetTarget(layers[TLayersCount() - 1].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -327,7 +328,7 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+    pRenderTarget->SetTarget(layers[TLayersCount() - 1].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -376,38 +377,45 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
 
     int startX = static_cast<int>(mouseX / zoomFactor);
     int startY = static_cast<int>(mouseY / zoomFactor);
-
     int startIdx = startY * capW + startX;
+
+    if (startX < 0 || startX >= capW || startY < 0 || startY >= capH) return;
+
     COLORREF targetColor = pixels[startIdx];
     if (targetColor == fillColor) return;
 
-    std::vector<POINT> rawPixelsToFill;
-    rawPixelsToFill.reserve(10000);
-    std::queue<POINT> q;
-    q.push({ startX, startY });
-    std::vector<bool> visited(capW * capH);
-    visited[startIdx] = true;
+    // --- OPTIMIZED BFS ---
+    std::vector<POINT> pixelsToFill;
+    pixelsToFill.reserve(10000);
+
+    std::vector<POINT> q;  // flat vector replaces queue
+    q.reserve(capW * capH);
+    q.push_back({ startX, startY });
+
+    std::vector<uint8_t> visited(capW * capH, 0); // faster visited map
+    visited[startIdx] = 1;
 
     const int dx[4] = { 1, -1, 0, 0 };
     const int dy[4] = { 0, 0, 1, -1 };
 
-    while (!q.empty()) {
-        POINT p = q.front(); q.pop();
-        rawPixelsToFill.push_back(p);
+    size_t idx = 0;
+    while (idx < q.size()) {
+        POINT p = q[idx++];
+        pixelsToFill.push_back(p);
+
         for (int i = 0; i < 4; ++i) {
             int nx = p.x + dx[i];
             int ny = p.y + dy[i];
             if (nx >= 0 && nx < capW && ny >= 0 && ny < capH) {
                 int ni = ny * capW + nx;
                 if (!visited[ni] && pixels[ni] == targetColor) {
-                    visited[ni] = true;
-                    q.push({ nx, ny });
+                    visited[ni] = 1;
+                    q.push_back({ nx, ny });
                 }
             }
         }
     }
-
-    std::vector<POINT> pixelsToFill = rawPixelsToFill;
+    // --- END OPTIMIZED BFS ---
 
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fillColor), &pBrush);
@@ -416,28 +424,22 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
         pBrush->SetColor(HGetRGBColor(fillColor));
     }
 
-    const int threadCount = std::thread::hardware_concurrency();
-    std::vector<std::thread> threads;
-    std::mutex drawMutex;
-
-
+    std::vector<D2D1_RECT_F> rects(pixelsToFill.size());
+    
+    for (size_t j = 0; j < pixelsToFill.size(); j++) {
+        auto [px, py] = pixelsToFill[j];
+        rects[j] = D2D1::RectF(
+            (FLOAT)px, (FLOAT)py,
+            (FLOAT)px + 1, (FLOAT)py + 1
+        );
+    }
+    
     pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-    for (int t = 0; t < threadCount; ++t) {
-        threads.emplace_back([&, t]() {
-            for (size_t j = t; j < pixelsToFill.size(); j += threadCount) {
-                POINT ip = pixelsToFill[j];
-                D2D1_RECT_F r = D2D1::RectF(
-                    float(ip.x), float(ip.y),
-                    float(ip.x + 1), float(ip.y + 1)
-                );
-                
-                pRenderTarget->FillRectangle(r, pBrush.Get());
-            }
-        });
+    for (auto& r : rects) {
+        pRenderTarget->FillRectangle(r, pBrush.Get());
     }
-    for (auto& th : threads) th.join();
     pRenderTarget->EndDraw();
 
     // 6) Salva ACTION
@@ -453,104 +455,145 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     TRenderLayers();
 }
 
-void TWriteTool(int xInitial, int yInitial, int x, int y) {
+void TInitTextTool(float scaledLeft, float scaledTop, float width, float height) {
+    std::cout << "TINIT_TEXT_TOOL";
+    if (isWritingText) return;
+    HINSTANCE hInstance = GetModuleHandle(NULL);
+
+    hTextInput = CreateWindowEx(
+        0, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+        scaledLeft, scaledTop, width, height,        // temporary size, will update per textArea
+        docHWND, nullptr, hInstance , nullptr
+    );
+
+    oldEditProc = (WNDPROC)SetWindowLongPtr(
+        hTextInput,
+        GWLP_WNDPROC,
+        (LONG_PTR)TextEditProc
+    );
+
+    SetFocus(hTextInput);
+    
+}
+
+void TWriteTool(int x, int y) {
     if (!layers[layerIndex].has_value()) return;
 
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &pBrush);
-    }
-    else {
-        pBrush->SetColor(D2D1::ColorF(D2D1::ColorF::Black));
+    if (fontSize == 0) {
+        SetFont();
+        return;
     }
 
+    std::cout << "TWRITE_TOOL";
+
+    float scaledX = static_cast<float>(x) / zoomFactor;
+    float scaledY = static_cast<float>(y) / zoomFactor;
+    float scaledW = 200 / zoomFactor;
+    float scaledH = 30 / zoomFactor;
+
+    textArea = D2D1::RectF(scaledX, scaledY, scaledX + scaledW, scaledY + scaledH);
+
+    HINSTANCE hInstance = GetModuleHandle(NULL);
+
+    hTextInput = CreateWindowEx(
+        0, L"EDIT", L"",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+        scaledX, scaledY, scaledW, scaledH,
+        docHWND, nullptr, hInstance, nullptr
+    );
+
+    SetFocus(hTextInput);
+
+    oldEditProc = (WNDPROC)SetWindowLongPtr(
+        hTextInput,
+        GWLP_WNDPROC,
+        (LONG_PTR)TextEditProc
+    );
+}
+
+void TWriteToolCommitText() {
+    std::cout << "TWRITE_TOOL_COMMIT_TEXT";
+    if (!layers[layerIndex].has_value()) return;
+
+    wchar_t buffer[1024] = {};
+    GetWindowText(hTextInput, buffer, 1024);
+    std::wstring text(buffer);
+
+    // Draw the text onto the layer bitmap
     pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
-    isWritingText = true;
-
-    // Scale coordinates
-    float scaledLeft = static_cast<float>(xInitial) / zoomFactor;
-    float scaledTop = static_cast<float>(yInitial) / zoomFactor;
-    float scaledRight = static_cast<float>(x) / zoomFactor;
-    float scaledBottom = static_cast<float>(y) / zoomFactor;
-
-    textArea = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
-
-    if (prevTextArea.left != 0 || prevTextArea.top != 0 || prevTextArea.right != 0 || prevTextArea.bottom != 0) {
-        pRenderTarget->PushAxisAlignedClip(prevTextArea, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        pRenderTarget->PopAxisAlignedClip();
+    if (pBrush) {
+        pBrush->SetColor(HGetRGBColor(fontColor));
+    }
+    else {
+        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fontColor), &pBrush);
     }
 
-    D2D1_STROKE_STYLE_PROPERTIES strokeProps = {};
-    strokeProps.dashStyle = D2D1_DASH_STYLE_DASH;       // dashed line
-    strokeProps.lineJoin = D2D1_LINE_JOIN_ROUND;       // line corners
-    strokeProps.startCap = D2D1_CAP_STYLE_ROUND;       // start of line
-    strokeProps.endCap = D2D1_CAP_STYLE_ROUND;       // end of line
-    strokeProps.dashOffset = 0.0f;
-    
-    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> pStrokeStyle;
-    pD2DFactory->CreateStrokeStyle(
-        strokeProps,
-        nullptr,        // nullptr = default dash array
-        0,              // number of elements in dash array
-        &pStrokeStyle
+    pDWriteFactory->CreateTextFormat(
+        fontFace.c_str(),                                     // Font family
+        nullptr,                                           // Font collection (nullptr = system)
+        static_cast<DWRITE_FONT_WEIGHT>(
+            (fontWeight > DWRITE_FONT_WEIGHT_BLACK) ? DWRITE_FONT_WEIGHT_BLACK : fontWeight
+            ),
+        fontItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        static_cast<FLOAT>(fontSize) / 10.0f,       // Convert tenths of a point to DIPs
+        L"en-us",                                         // Locale
+        &pTextFormat
     );
 
-    pRenderTarget->PushAxisAlignedClip(textArea, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    pRenderTarget->DrawRectangle(textArea, pBrush.Get(), 1.0f, pStrokeStyle.Get());
-    pRenderTarget->PopAxisAlignedClip();
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> textLayout;
+    pDWriteFactory->CreateTextLayout(
+        text.c_str(),
+        static_cast<UINT32>(text.size()),
+        pTextFormat.Get(),
+        textArea.right - textArea.left,
+        textArea.bottom - textArea.top,
+        &textLayout
+    );
 
-    prevTextArea = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
+    if (fontUnderline)
+        textLayout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)text.size() });
+    if (fontStrike)
+        textLayout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)text.size() });
+
+    pRenderTarget->DrawTextLayout(
+        D2D1::Point2F(textArea.left, textArea.top),
+        textLayout.Get(),
+        pBrush.Get()
+    );
 
     pRenderTarget->EndDraw();
+    
+    isWritingText = false;
 
-    /*
-     if (isWritingText) {
-            ComPtr<ID2D1SolidColorBrush> textBrush;
-            pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fontColor), &textBrush);
+    DestroyWindow(hTextInput);
 
-            Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
+    TRenderLayers();
 
-            FLOAT fontSizeDIP = fontSize > 0 ? ((fontSize / 10.0f) * (96.0f / 72.0f)) : 0;
+    InvalidateRect(docHWND, nullptr, TRUE);
 
-            HRESULT hr = pDWriteFactory->CreateTextFormat(
-                fontFace.length() > 0 ? fontFace.c_str() : L"Arial",                // Font family
-                nullptr,                    // Font collection (nullptr = system)
-                (fontWeight >= FW_BOLD) ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_REGULAR,
-                fontItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                fontSize > 0 ? fontSizeDIP : 24.0f,                // Font size in DIPs
-                L"en-us",                   // Locale
-                &pTextFormat
-            );
+    SetFocus(docHWND);
 
-            if (FAILED(hr)) {
-                std::wcout << hr;
-            }
+    ACTION action;
 
-            const WCHAR* text = L"Hello World";
-            size_t textLength = wcslen(text);
+    action.Tool = TWrite;
+    action.Text = text;
+    action.Layer = layerIndex;
+    action.Position = textArea;
+    action.Color = fontColor;
 
-            pRenderTarget->DrawTextW(
-                text,               // Text
-                static_cast<UINT32>(textLength),
-                pTextFormat.Get(),  // Text format
-                textArea,           // Layout rectangle
-                textBrush.Get()         // Brush
-            );
+    action.FontFamily = fontFace;
+    action.FontSize = fontSize;
+    action.FontWeight = fontWeight;
+    action.FontItalic = (fontItalic != 0);
+    action.FontUnderline = (fontUnderline != 0);
+    action.FontStrike = (fontStrike != 0);
 
-            action.Tool = TWrite;
-            action.Layer = layerIndex;
-            action.Position = textArea;
-            action.Text = text;
-            action.Color = currentColor;
-
-            textArea = D2D1::RectF(0, 0, 0, 0);
-            isWritingText = false;
-        }
-    */
+    Actions.push_back(action);
 }
 
 void __stdcall TSelectTool(int xInitial, int yInitial) {
@@ -614,6 +657,7 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
     else {
         switch (selected.Tool) {
         case TRectangle:
+        case TWrite:
             minX = selected.Position.left;
             minY = selected.Position.top;
             maxX = selected.Position.right;
@@ -665,6 +709,7 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
 
         switch (action.Tool) {
         case TRectangle:
+        case TWrite:
             action.Position.left += deltaX;
             action.Position.top += deltaY;
             action.Position.right += deltaX;
@@ -696,3 +741,21 @@ void __stdcall TUnSelectTool() {
     TRenderLayers();
 }
 
+/* SUBCLASS */
+
+LRESULT CALLBACK TextEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_KEYDOWN:
+        if (wParam == VK_RETURN) {
+            TWriteToolCommitText(); // bake text into bitmap
+            return 0; // swallow Enter
+        }
+        break;
+
+    case WM_KILLFOCUS:
+        //TWriteToolCommitText(); // user clicked away
+        break;
+    }
+
+    return CallWindowProc(oldEditProc, hwnd, msg, wParam, lParam);
+}

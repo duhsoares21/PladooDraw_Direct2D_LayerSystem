@@ -4,6 +4,8 @@
 #include "Layers.h"
 #include "Render.h"
 #include "SurfaceDial.h"
+#include "Helpers.h"
+#include "Tools.h"
 
 HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio) {
     mainHWND = pmainHWND;
@@ -98,9 +100,7 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
     hr = g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pRenderTarget);
 
     if (FAILED(hr)) {
-        _com_error err(hr);
-        std::wcout << L"Error: " << err.ErrorMessage() << L" (0x"
-            << std::hex << hr << L")" << std::endl;
+        HPrintHResultError(hr);
         return hr;
     }
 
@@ -131,6 +131,7 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
     swapDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     swapDesc.Flags = 0;
 
+    //hr = dxgiFactory->CreateSwapChainForComposition()
     hr = dxgiFactory->CreateSwapChainForHwnd(g_pD3DDevice.Get(), hWnd, &swapDesc, nullptr, nullptr, &g_pSwapChain);
     
     if (FAILED(hr)) {

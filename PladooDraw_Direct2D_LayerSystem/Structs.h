@@ -30,8 +30,15 @@ struct ACTION {
     bool isPixelMode;
     int mouseX;
     int mouseY;
-    const WCHAR *Text;
     std::vector<POINT> pixelsToFill;
+
+    std::wstring Text;
+    std::wstring FontFamily;   // e.g. "Arial"
+    int FontSize;              // in DIPs (or tenths of a point if you prefer)
+    int FontWeight;            // map to DWRITE_FONT_WEIGHT
+    bool FontItalic;
+    bool FontUnderline;
+    bool FontStrike;
 };
 
 struct Layer {

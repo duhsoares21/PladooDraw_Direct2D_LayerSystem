@@ -15,13 +15,17 @@ Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
 Microsoft::WRL::ComPtr<ID2D1Factory1> pD2DFactory;
 
 Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush = nullptr;
-ID2D1DeviceContext* pRenderTarget = nullptr;
-ID2D1DeviceContext* pRenderTargetLayer = nullptr;
+Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTarget = nullptr;
+Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTargetLayer = nullptr;
 
 Microsoft::WRL::ComPtr<ID3D11Device> g_pD3DDevice;
 Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
 Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
 Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
+
+Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;
+Microsoft::WRL::ComPtr<IDCompositionTarget> g_pDCompTarget;
+Microsoft::WRL::ComPtr<IDCompositionVisual> g_pDCompVisual;
 
 Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
 
@@ -62,8 +66,14 @@ bool isDrawingRectangle = false;
 bool isDrawingEllipse = false;
 bool isDrawingBrush = false;
 bool isDrawingLine = false;
+bool isDrawingWindowText = false;
 bool isPaintBucket = false;
 bool isWritingText = false;
+
+HWND hTextInput = nullptr;
+WNDPROC oldEditProc;
+
+Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 std::vector<LayerOrder> layersOrder;
 std::vector<std::optional<Layer>> layers;
