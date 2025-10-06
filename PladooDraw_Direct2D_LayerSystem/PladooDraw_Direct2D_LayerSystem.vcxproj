@@ -169,6 +169,7 @@
     <ClInclude Include="SaveLoad.h" />
     <ClInclude Include="Structs.h" />
     <ClInclude Include="SurfaceDial.h" />
+    <ClInclude Include="SvgExporter.h" />
     <ClInclude Include="Tools.h" />
     <ClInclude Include="ToolsAux.h" />
     <ClInclude Include="Transforms.h" />
@@ -187,6 +188,7 @@
     <ClCompile Include="Render.cpp" />
     <ClCompile Include="SaveLoad.cpp" />
     <ClCompile Include="SurfaceDial.cpp" />
+    <ClCompile Include="SvgExporter.cpp" />
     <ClCompile Include="Tools.cpp" />
     <ClCompile Include="ToolsAux.cpp" />
     <ClCompile Include="Transforms.cpp" />

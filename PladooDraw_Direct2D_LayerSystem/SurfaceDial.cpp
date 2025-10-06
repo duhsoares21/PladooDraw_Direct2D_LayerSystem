@@ -121,18 +121,18 @@ void OnDialRotation(int menuIndex, int direction, float rotationDegrees) {
 
     if (menuIndex == 0) {
         if (direction > 0) {
-            TZoomIn(rotationDegrees * 0.5f);
+            TZoomIn(rotationDegrees * 0.1f);
         }
         else {
-            TZoomOut((rotationDegrees * 0.5f) * -1.0f);
+            TZoomOut((rotationDegrees * 0.1f) * -1.0f);
         }
     }
     else if (menuIndex == 1) {
         if (direction > 0) {
-            TIncreaseBrushSize(rotationDegrees * 0.5f);
+            TIncreaseBrushSize(rotationDegrees * 0.1f);
         }
         else {
-            TDecreaseBrushSize((rotationDegrees * 0.5f) * -1.0f);
+            TDecreaseBrushSize((rotationDegrees * 0.1f) * -1.0f);
         }
     }
 }

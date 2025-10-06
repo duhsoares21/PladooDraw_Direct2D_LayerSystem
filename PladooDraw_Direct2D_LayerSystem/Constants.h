@@ -12,6 +12,7 @@ extern std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 extern HWND mainHWND;
 extern HWND docHWND;
 extern HWND layersHWND;
+extern HWND* hLayerButtons;
 
 extern Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush;
 extern Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
@@ -77,6 +78,8 @@ extern HWND hTextInput;
 extern bool isWritingText;
 extern WNDPROC oldEditProc;
 
+extern std::string loadedFileName;
+
 extern Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 extern std::vector<LayerOrder> layersOrder;
@@ -89,7 +92,12 @@ extern std::vector<std::pair<int, int>> pixelsToFill;
 
 extern int width, height;
 
+extern int btnWidth, btnHeight;
+
+extern HWND buttonUp, buttonDown, buttonPlus, buttonMinus;
+
 extern std::vector<std::optional<LayerButton>> LayerButtons;
+extern std::vector<std::optional<LayerItem>> LayerItems;
 
 extern POINT mouseLastClickPosition;
 

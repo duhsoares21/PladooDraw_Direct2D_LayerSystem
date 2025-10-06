@@ -5,69 +5,77 @@
 #include "Tools.h"
 #include "Layers.h"
 #include "Render.h"
+#include "Main.h"
 
 /* LAYERS */
-
+    
 int TLayersCount() {
     return layers.size();
 }
 
 void TUpdateLayerButtonsPosition() {
-    // Cria uma cópia de layersOrder para não modificar o original sem necessidade.
+    size_t count = std::count_if(layers.begin(), layers.end(), [](auto& l) { return l.has_value(); });
     std::vector<LayerOrder> sortedLayers = layersOrder;
 
-    // Ordena a cópia com base no valor de layerOrder (do menor para o maior).
-    std::sort(sortedLayers.begin(), sortedLayers.end(),
-        [](const LayerOrder& a, const LayerOrder& b) {
-            return a.layerOrder < b.layerOrder;
-        });
+    std::vector<LayerOrder> result;
+    result.reserve(count);
 
-    // Itera sobre os layers ordenados e move os botões correspondentes.
-    for (size_t i = 0; i < sortedLayers.size(); ++i) {
-        int currentLayerIndex = sortedLayers[i].layerIndex;
+    for (auto sortedLayer : sortedLayers) {
+        if (layers[sortedLayer.layerIndex].has_value() && sortedLayer.layerIndex == layers[sortedLayer.layerIndex].value().LayerID) {
+            result.push_back(sortedLayer);
+        }
+    }
 
-        // Verifica se o botão para este índice de layer existe.
+    std::sort(result.begin(), result.end(),
+    [](const LayerOrder& a, const LayerOrder& b) {
+        return a.layerOrder > b.layerOrder;
+    });
+
+    for (size_t i = 0; i < result.size(); ++i) {
+        int currentLayerIndex = result[i].layerIndex;
+
         if (currentLayerIndex >= 0 && currentLayerIndex < LayerButtons.size() && LayerButtons[currentLayerIndex].has_value()) {
-            // Move o botão para a nova posição vertical.
-            // A posição Y é determinada pela sua ordem na lista ordenada (i).
-            MoveWindow(LayerButtons[currentLayerIndex].value().button, 0, i * 90, 90, 90, TRUE);
+            MoveWindow(LayerButtons[currentLayerIndex].value().button, 0, i * btnHeight, btnWidth, btnHeight, TRUE);
         }
     }
 }
 
-HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
-    std::cout << "ADD LAYER - " << currentLayer << "\n";
-    // Use logical size (not physical/zoomed size from pRenderTarget)
-    D2D1_SIZE_F size = D2D1::SizeF(logicalWidth, logicalHeight);
+Microsoft::WRL::ComPtr<ID2D1Bitmap1> CreateEmptyLayerBitmap()
+{
+    if (!pRenderTarget) return nullptr;
+
+    D2D1_SIZE_U size = D2D1::SizeU(logicalWidth, logicalHeight);
 
     FLOAT dpiX, dpiY;
     pRenderTarget->GetDpi(&dpiX, &dpiY);
 
-    // Create offscreen bitmap (targetable)
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
-    D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+    D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
         dpiX, dpiY
     );
 
-    HRESULT hr = pRenderTarget->CreateBitmap(
-        D2D1::SizeU(static_cast<UINT32>(size.width), static_cast<UINT32>(size.height)),
-        nullptr, 0, &bp, &pBitmap
-    );
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
+    HRESULT hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &props, &bitmap);
 
     if (FAILED(hr)) {
-        MessageBox(NULL, L"Failed to create bitmap", L"Error", MB_OK);
-        return hr;
+        std::wcerr << L"Falha ao criar bitmap vazio para layer. HRESULT: " << hr << std::endl;
+        return nullptr;
     }
 
+    return bitmap;
+}
+
+HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap = CreateEmptyLayerBitmap();
+   
     pRenderTarget->SetTarget(pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0)); // fully transparent
     pRenderTarget->EndDraw();
 
     // Add to layers
-    Layer layer = { currentLayer, pBitmap };
+    Layer layer = { currentLayer, true, pBitmap };
     layers.emplace_back(layer);
 
     if (!fromFile) {
@@ -75,19 +83,58 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
         layersOrder.emplace_back(layerOrder);
     }
 
+    if (!fromFile) {
+        ACTION action;
+        action.Tool = TLayer;
+        action.Layer = currentLayer;
+        action.isLayerVisible = 1;
+
+        Actions.push_back(action);
+    }
+
     return S_OK;
 }
 
-void TAddLayerButton(HWND layerButton) {
+void TReorderLayers(bool isAddingLayer) {
+    int counter = isAddingLayer ? 0 : -1;
+    for (auto it = LayerButtons.rbegin(); it != LayerButtons.rend(); ++it) {
+        if (it->has_value()) {
+            counter++;
+            MoveWindow(it->value().button, 0, counter * btnHeight, btnWidth, btnHeight, true);
+        }
+    }
+}
 
-    std::cout << "ADD LAYER BUTTON" << "\n";
-    // Get client rect for size
+void TAddLayerButton(int LayerButtonID, bool visible = true) {
+
+    HINSTANCE hLayerInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(layersHWND, GWLP_HINSTANCE));
+
+    DWORD style = visible ? WS_CHILD | WS_VISIBLE | BS_BITMAP : WS_CHILD | BS_BITMAP;
+
+    TReorderLayers(true);
+
+    HWND layerButton = CreateWindowEx(
+        0,                        
+        L"Button",               
+        L"",                     
+        style,
+        0,                           
+        0,   
+        btnWidth,                    
+        btnHeight,                   
+        layersHWND,                  
+        (HMENU)(intptr_t)LayerButtonID,
+        hLayerInstance,              
+        NULL                         
+    );
+    
+    SetLayer(LayerButtonID);
+
     RECT rc;
     GetClientRect(layerButton, &rc);
     D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
 
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> layerDeviceContext;
-    // Create another device context from the same D2D device (not HWND render target)
     HRESULT hr = g_pD2DDevice->CreateDeviceContext(
         D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
         layerDeviceContext.GetAddressOf()
@@ -99,7 +146,6 @@ void TAddLayerButton(HWND layerButton) {
     Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
     hr = dxgiDevice->GetAdapter(&adapter);
 
-    // Create swap chain for this layer window
     Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
     hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
 
@@ -121,7 +167,6 @@ void TAddLayerButton(HWND layerButton) {
         &layerSwapChain
     );
 
-    // Set the swap chain as target for the device context
     Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
     layerSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
 
@@ -139,48 +184,49 @@ void TAddLayerButton(HWND layerButton) {
 
     layerDeviceContext->SetTarget(targetBitmap.Get());
 
-    int LayerID = GetDlgCtrlID(layerButton);
-
-    // Store the device context and swap chain
     LayerButtons.push_back(LayerButton{
-        LayerID,
+        LayerButtonID,
         layerButton,
         layerDeviceContext,
         layerSwapChain,
     });
 
-    TDrawLayerPreview(LayerID);
+    TDrawLayerPreview(LayerButtonID);
 }
 
-void TRemoveLayerButton() {
+HRESULT TRemoveLayer(int currentLayer = -1) {
+
+    if (currentLayer != -1) {
+        layerIndex = currentLayer;
+    }
+
+    if (layers[layerIndex].has_value()) {
+        layers[layerIndex].reset();
+    }
+
+    for (auto it = Actions.begin(); it != Actions.end();) {
+        if (it->Layer == layerIndex) {
+            it = Actions.erase(it); // erase returns iterator to next element
+        }
+        else {
+            ++it; // only increment if no erase
+        }
+    }
+
+    return S_OK;
+}
+
+void TRemoveLayerButton(int currentLayer = -1) {
+    if (currentLayer != -1) {
+        layerIndex = currentLayer;
+    }
+
     if (!LayerButtons[layerIndex].has_value()) return;  
     
     DestroyWindow(LayerButtons[layerIndex].value().button);
     LayerButtons[layerIndex].reset();
 
-    size_t count = std::count_if(layers.begin(), layers.end(), [](auto& l) { return l.has_value(); });
-
-    std::vector<LayerButton> result;
-    result.reserve(count);
-    
-    for (auto layerButton : LayerButtons) {
-        if (layerButton.has_value()) {
-            result.push_back(*layerButton);
-        }
-    }
-
-    for (size_t i = 0; i < result.size(); i++) {
-        MoveWindow(result[i].button, 0, i * 90, 90, 90, true);
-    }
-}
-
-HRESULT TRemoveLayer() {
-
-    if (layers[layerIndex].has_value()) {
-        layers[layerIndex].reset();
-    }
-    
-    return S_OK;
+    TReorderLayers(false);
 }
 
 int TGetLayer() {
@@ -387,6 +433,7 @@ void TUpdateLayers(int layerIndexTarget = -1) {
 }
 
 void TRenderLayers() {
+
     // Check swap chain
     if (!g_pSwapChain) {
         OutputDebugStringW(L"TRenderLayers: g_pSwapChain is nullptr. Attempting to reinitialize.\n");
@@ -440,7 +487,9 @@ void TRenderLayers() {
         int index = lo.layerIndex;
         if (index < 0 || index >= layers.size()) continue;
         if (layers[index].has_value()) {
-            pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
+            if (layers[index].value().isActive) {
+                pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
+            }
         }
     }
 
@@ -454,14 +503,11 @@ void TRenderLayers() {
         OutputDebugStringW((L"TRenderLayers: Present failed, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
     }
 
-    std::cout << "LAYER SIZE" << layers.size() << "\n";
-    std::cout << "LAYER INDEX" << layerIndex << "\n";
-    
     if (layers[layerIndex].has_value()) {
         TDrawLayerPreview(layerIndex);
     }
 }
-
+    
 // This function now uses the global pBrush, creating it if it's null.
 void TSelectedLayerHighlight(int currentLayer) {
     // Exit if there's nothing to draw on.
@@ -535,14 +581,15 @@ void TSelectedLayerHighlight(int currentLayer) {
 }
 
 void TDrawLayerPreview(int currentLayer) {
+
     RECT rc;
 
     if (LayerButtons.size() == 0) {
         return;
     }
 
-    if (!LayerButtons[currentLayer].has_value()) return;
     if (!layers[currentLayer].has_value()) return;
+    if (!LayerButtons[currentLayer].has_value()) return;
 
     HWND layerbutton = LayerButtons[currentLayer].value().button;
 

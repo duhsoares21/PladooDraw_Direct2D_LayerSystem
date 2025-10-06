@@ -6,16 +6,17 @@ extern "C" __declspec(dllexport) void __stdcall Resize();
 
 extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio);
 extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
-extern "C" __declspec(dllexport) void InitTextTool();
 extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview();
+extern "C" __declspec(dllexport) HRESULT InitializeLayersButtons(HWND* buttonsHwnd);
 extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
 
 extern "C" __declspec(dllexport) void SetSelectedTool(int pselectedTool);
+extern "C" __declspec(dllexport) void __stdcall ExportSVG();
 extern "C" __declspec(dllexport) void __stdcall SetFont();
 
 extern "C" __declspec(dllexport) void __stdcall SaveProjectDll(const char* pathAnsi);
-extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
-extern "C" __declspec(dllexport) void __stdcall LoadProjectDllW(LPWSTR lppath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText);
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDll(LPCSTR apath);
+extern "C" __declspec(dllexport) void __stdcall LoadProjectDllW(LPWSTR lppath);
 
 extern "C" __declspec(dllexport) void CreateLogData(std::string fileName, std::string content);
 
@@ -33,12 +34,14 @@ extern "C" __declspec(dllexport) void DecreaseBrushSize_Default();
 extern "C" __declspec(dllexport) void IncreaseBrushSize(float sizeIncrement);
 extern "C" __declspec(dllexport) void DecreaseBrushSize(float sizeIncrement);
 
-extern "C" __declspec(dllexport) void AddLayerButton(HWND layerButton);
+extern "C" __declspec(dllexport) void ReorderLayers(int isAddingLayer);
+extern "C" __declspec(dllexport) void AddLayerButton(int LayerButtonID);
 extern "C" __declspec(dllexport) void RemoveLayerButton();
-extern "C" __declspec(dllexport) HRESULT AddLayer(bool fromFile, int currentLayer);
+extern "C" __declspec(dllexport) void AddLayer(bool fromFile, int currentLayer);
 extern "C" __declspec(dllexport) HRESULT RemoveLayer();
 extern "C" __declspec(dllexport) int GetLayer();
 extern "C" __declspec(dllexport) void SetLayer(int index);
+extern "C" __declspec(dllexport) int __stdcall IsLayerActive(int layer, int* isActive);
 extern "C" __declspec(dllexport) int GetActiveLayersCount();
 extern "C" __declspec(dllexport) void ReorderLayerUp();
 extern "C" __declspec(dllexport) void ReorderLayerDown();
@@ -57,3 +60,5 @@ extern "C" __declspec(dllexport) void LineTool(int xInitial, int yInitial, int x
 extern "C" __declspec(dllexport) void PaintBucketTool(int xInitial, int yInitial, COLORREF hexFillColor, HWND hWnd);
 extern "C" __declspec(dllexport) void WriteTool(int x, int y);
 extern "C" __declspec(dllexport) void Cleanup();
+
+extern "C" __declspec(dllexport) void OnScrollWheelLayers(int wParam);

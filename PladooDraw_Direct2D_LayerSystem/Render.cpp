@@ -4,6 +4,7 @@
 #include "Layers.h"
 #include "Render.h"
 #include "SurfaceDial.h"
+#include "Transforms.h"
 #include "Helpers.h"
 #include "Tools.h"
 
@@ -33,6 +34,7 @@ HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int 
 }
 
 HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio) {
+
     RECT rc;
     GetClientRect(hWnd, &rc);
 
@@ -42,6 +44,23 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
     if (pWidth != -1 && pHeight != -1) {
         width = pWidth;
         height = pHeight;
+    }
+
+    if (width > 512) {
+        btnWidth = 160;
+        btnHeight = 90;
+    }
+    else {
+        btnWidth = 90;
+        btnHeight = 90;
+    }
+
+    GetClientRect(mainHWND, &rc);
+
+    int mainWidth = (rc.right - rc.left) - 500;
+
+    if (mainWidth < width) {
+        zoomFactor = (float)mainWidth / (float)width;
     }
 
     logicalWidth = static_cast<float>(width);
@@ -165,12 +184,22 @@ HRESULT TInitializeWrite() {
 
 HRESULT TInitializeLayerRenderPreview() {
     TRenderLayers();
-
+    TZoom();
     return S_OK;
 }
 
 HRESULT TInitializeLayers(HWND hWnd) {
     layersHWND = hWnd;
+
+    return S_OK;
+}
+
+HRESULT TInitializeLayersButtons(HWND* buttonsHwnd) {
+
+    buttonUp = buttonsHwnd[10];
+    buttonDown = buttonsHwnd[11];
+    buttonPlus = buttonsHwnd[12];
+    buttonMinus = buttonsHwnd[13];
 
     return S_OK;
 }

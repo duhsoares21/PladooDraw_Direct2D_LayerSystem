@@ -19,6 +19,7 @@ struct LINE {
 struct ACTION {
     int Tool;
     int Layer;
+    int isLayerVisible;
     D2D1_RECT_F Position;
     EDGE FreeForm;
     D2D1_ELLIPSE Ellipse;
@@ -43,6 +44,7 @@ struct ACTION {
 
 struct Layer {
     int LayerID;
+    bool isActive;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
 };
 
@@ -84,6 +86,11 @@ struct LayerButton {
     HWND button;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
+};
+
+struct LayerItem {
+    int LayerID;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> lBitmap;
 };
 
 struct PairHash {

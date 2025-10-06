@@ -9,6 +9,7 @@ std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 HWND mainHWND = NULL;
 HWND docHWND = NULL;
 HWND layersHWND = NULL;
+HWND* hLayerButtons = NULL;
 
 Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
 Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
@@ -73,6 +74,8 @@ bool isWritingText = false;
 HWND hTextInput = nullptr;
 WNDPROC oldEditProc;
 
+std::string loadedFileName;
+
 Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 std::vector<LayerOrder> layersOrder;
@@ -84,8 +87,12 @@ std::vector<VERTICE> Vertices;
 std::vector<std::pair<int, int>> pixelsToFill;
 
 int width, height;
+int btnWidth = 90, btnHeight = 90;
+
+HWND buttonUp, buttonDown, buttonPlus, buttonMinus;
 
 std::vector<std::optional<LayerButton>> LayerButtons;
+std::vector<std::optional<LayerItem>> LayerItems;
 
 POINT mouseLastClickPosition = { 0, 0 };
 

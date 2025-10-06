@@ -9,24 +9,18 @@ float TGetZoomFactor() {
     return zoomFactor;
 }
 
-void TZoomIn_Default() {
-    TZoomIn(0.5f);
-}
-
-void TZoomOut_Default() {
-    TZoomOut(0.5f);
-}
-
 void TZoomIn(float zoomRatio) {
     if (zoomFactor < 3.0f) {
         zoomFactor = (std::min)(zoomFactor + zoomRatio, 3.0f);
+        std::cout << "ZOOM IN" << zoomFactor << "\n";
         TZoom();
     }
 }
 
 void TZoomOut(float zoomRatio) {
-    if (zoomFactor > 1.0f) {
-        zoomFactor = (std::max)(zoomFactor - zoomRatio, 1.0f);
+    if (zoomFactor > 0.1f) {
+        zoomFactor = (std::max)(zoomFactor - zoomRatio, 0.1f);
+        std::cout << "ZOOM OUT" << zoomFactor << "\n";
         TZoom();
     }
 }

@@ -10,6 +10,7 @@
 #include "Tools.h"
 #include "ToolsAux.h"
 #include "Transforms.h"
+#include "SvgExporter.h"
 
 /* MAIN */
 
@@ -86,16 +87,16 @@ HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRat
     return TInitializeDocument(hWnd, pWidth, pHeight, pPixelSizeRatio);
 }
 
-void InitTextTool() {
-
-}
-
 HRESULT InitializeLayerRenderPreview() {
     return TInitializeLayerRenderPreview();
 }
 
 HRESULT InitializeLayers(HWND hWnd) {
     return TInitializeLayers(hWnd);
+}
+
+HRESULT InitializeLayersButtons(HWND* buttonsHwnd) {
+    return TInitializeLayersButtons(buttonsHwnd);
 }
 
 /* HELPERS */
@@ -112,7 +113,13 @@ void __stdcall SaveProjectDll(const char* pathAnsi) {
     SaveBinaryProject(wpath);
 }
 
-void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+void __stdcall LoadProjectDll(LPCSTR apath) {
+
+    vector<std::string> splitString = HSplit(apath,"\\");
+    std::string filePDD = splitString[splitString.size() - 1];
+
+    loadedFileName = HSplit(filePDD, ".")[0];
+
     std::wstring wpath;
     int size_needed = MultiByteToWideChar(CP_ACP, 0, apath, -1, nullptr, 0);
     if (size_needed > 0) {
@@ -123,10 +130,10 @@ void __stdcall LoadProjectDll(LPCSTR apath, HWND hWndLayer, HINSTANCE hLayerInst
         }
     }
 
-    LoadBinaryProject(wpath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, L"Button", msgText);
+    LoadBinaryProject(wpath);
 }
 
-void __stdcall LoadProjectDllW(LPWSTR wpath, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
+void __stdcall LoadProjectDllW(LPWSTR wpath) {
 
     std::wstring widePath;
     if (wpath) {
@@ -139,7 +146,20 @@ void __stdcall LoadProjectDllW(LPWSTR wpath, HWND hWndLayer, HINSTANCE hLayerIns
         widePath.assign(wpath, len); // Copy exactly 'len' characters
     }
 
-    LoadBinaryProject(widePath, hWndLayer, hLayerInstance, btnWidth, btnHeight, hLayerButtons, layerID, L"Button", msgText);
+    int bufferSize = WideCharToMultiByte(CP_ACP, 0, wpath, -1, NULL, 0, NULL, NULL);
+
+    // Allocate memory for the converted string
+    char* narrowString = new char[bufferSize];
+
+    // Perform the conversion
+    WideCharToMultiByte(CP_ACP, 0, wpath, -1, narrowString, bufferSize, NULL, NULL);
+
+    vector<std::string> splitString = HSplit(narrowString, "\\");
+    std::string filePDD = splitString[splitString.size() - 1];
+
+    loadedFileName = HSplit(filePDD, ".")[0];
+
+    LoadBinaryProject(widePath);
 }
 
 /* ACTIONS */
@@ -163,11 +183,11 @@ float __stdcall GetZoomFactor() {
 }
 
 void ZoomIn_Default() {
-    TZoomIn(0.5f);
+    TZoomIn(0.1f);
 }
 
 void ZoomOut_Default() {
-    TZoomOut(0.5f);
+    TZoomOut(0.1f);
 }
 
 void ZoomIn(float zoomRatio) {
@@ -198,24 +218,24 @@ void DecreaseBrushSize(float sizeRatio) {
 
 /* LAYERS */
 
-HRESULT AddLayer(bool fromFile=false, int currentLayer = -1) {
-    return TAddLayer(fromFile, currentLayer);
+void AddLayer(bool fromFile = false, int currentLayer = -1) {
+    TAddLayer(fromFile, currentLayer);
 }
 
 int LayersCount() {
     return TLayersCount();
 }
 
-void AddLayerButton(HWND layerButton) {
-    TAddLayerButton(layerButton);
+void AddLayerButton(int LayerButtonID) {
+    TAddLayerButton(LayerButtonID, true);
 }
 
 void RemoveLayerButton() {
-    TRemoveLayerButton();
+    TRemoveLayerButton(-1);
 }
 
 HRESULT RemoveLayer() {
-    return TRemoveLayer();
+    return TRemoveLayer(-1);
 }
 
 int GetLayer() {
@@ -228,6 +248,20 @@ void SetLayer(int index) {
 
 int GetActiveLayersCount() {
     return HGetActiveLayersCount();
+}
+
+int __stdcall IsLayerActive(int layer, int* isActive) {
+    if (layers[layer].has_value()) {
+        *isActive = layers[layer].value().isActive ? 1 : 0;
+    }
+    else {
+        *isActive = 0;
+    }
+    return layers[layer].has_value();
+}
+
+void ReorderLayers(int isAddingLayer) {
+    TReorderLayers(isAddingLayer && 1);
 }
 
 void ReorderLayerUp() {
@@ -258,6 +292,33 @@ void DrawLayerPreview(int currentLayer) {
 
 void SetSelectedTool(int pselectedTool) {
     HSetSelectedTool(pselectedTool);
+}
+
+void __stdcall ExportSVG() {
+    float scaleFactor = 1.0f; // Duplicar o tamanho
+    std::string outputFilename;
+    
+    if (loadedFileName.empty()) {
+        srand(time(0));
+        int randomNumber = rand();
+        loadedFileName = std::to_string(randomNumber);
+    }
+
+    TCHAR path[MAX_PATH];
+
+    HRESULT hr = SHGetFolderPath(NULL, CSIDL_PROFILE, NULL, 0, path);
+
+    if (SUCCEEDED(hr)) {
+        std::wstring profilePath(path);
+
+        int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, profilePath.c_str(), (int)profilePath.size(), NULL, 0, NULL, NULL);
+        std::string path(sizeNeeded, 0);
+        WideCharToMultiByte(CP_UTF8, 0, profilePath.c_str(), (int)profilePath.size(), &path[0], sizeNeeded, NULL, NULL);
+        
+        outputFilename = path + "\\documents\\pladoo-draw\\exports\\" + loadedFileName + ".svg";
+    }
+
+    ExportActionsToSvg(Actions, outputFilename, scaleFactor, width, height);
 }
 
 void __stdcall SetFont() {
@@ -324,4 +385,8 @@ void __stdcall UnSelectTool() {
 
 void Cleanup() {
     HCleanup(); 
+}
+
+void OnScrollWheelLayers(int wParam) {
+    HOnScrollWheelLayers(wParam);
 }

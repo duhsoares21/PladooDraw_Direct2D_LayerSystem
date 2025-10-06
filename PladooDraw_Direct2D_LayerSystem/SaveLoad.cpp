@@ -5,6 +5,7 @@
 #include "Layers.h"
 #include "Main.h"
 #include "Tools.h"
+#include "SaveLoad.h"
 
 void SaveBinaryProject(const std::wstring& filename) {
     std::ofstream out(filename, std::ios::binary);
@@ -26,6 +27,28 @@ void SaveBinaryProject(const std::wstring& filename) {
         return;
     }
 
+    // Save layers
+    std::vector<std::optional<Layer>> layersToSave;
+    layersToSave.reserve(layers.size());
+    for (auto& l : layers) {
+        if (l.has_value() && l->isActive)
+            layersToSave.push_back(l);
+    }
+
+    // Salvar quantidade
+    int layerCount = static_cast<int>(layersToSave.size());
+    out.write((char*)&layerCount, sizeof(layerCount));
+
+    // Salvar cada layer ativo
+    for (auto& l : layersToSave) {
+        bool hasValue = l.has_value();
+        out.write((char*)&hasValue, sizeof(hasValue));
+        if (hasValue) {
+            out.write((char*)&l->LayerID, sizeof(l->LayerID));
+            out.write((char*)&l->isActive, sizeof(l->isActive));
+        }
+    }
+
     // Save layersOrder
     int layerOrderCount = static_cast<int>(layersOrder.size());
     out.write((char*)&layerOrderCount, sizeof(layerOrderCount));
@@ -39,7 +62,8 @@ void SaveBinaryProject(const std::wstring& filename) {
         }
     }
 
-    // Save actions
+    // Save Actions
+
     int actionCount = static_cast<int>(Actions.size());
     out.write((char*)&actionCount, sizeof(actionCount));
     for (const auto& a : Actions) {
@@ -66,6 +90,79 @@ void SaveBinaryProject(const std::wstring& filename) {
             out.write(reinterpret_cast<const char*>(&a.FontItalic), sizeof(a.FontItalic));
             out.write(reinterpret_cast<const char*>(&a.FontUnderline), sizeof(a.FontUnderline));
             out.write(reinterpret_cast<const char*>(&a.FontStrike), sizeof(a.FontStrike));
+        }
+        if (a.Tool == TLayer) {
+            out.write((char*)&a.isLayerVisible, sizeof(a.isLayerVisible));
+            if (!out.good()) {
+                std::cout << "Error Is Layer Visible" << "\n";
+                out.close();
+                return;
+            }
+        }
+        out.write((char*)&a.Ellipse, sizeof(a.Ellipse));
+        out.write((char*)&a.FillColor, sizeof(a.FillColor));
+        out.write((char*)&a.Color, sizeof(a.Color));
+        out.write((char*)&a.BrushSize, sizeof(a.BrushSize));
+        out.write((char*)&a.IsFilled, sizeof(a.IsFilled));
+        out.write((char*)&a.isPixelMode, sizeof(a.isPixelMode));
+        out.write((char*)&a.mouseX, sizeof(a.mouseX));
+        out.write((char*)&a.mouseY, sizeof(a.mouseY));
+
+        int vertexCount = static_cast<int>(a.FreeForm.vertices.size());
+        out.write((char*)&vertexCount, sizeof(vertexCount));
+        if (vertexCount > 0) {
+            out.write((char*)a.FreeForm.vertices.data(), vertexCount * sizeof(VERTICE));
+        }
+
+        int pixelCount = static_cast<int>(a.pixelsToFill.size());
+        out.write((char*)&pixelCount, sizeof(pixelCount));
+        if (pixelCount > 0) {
+            out.write((char*)a.pixelsToFill.data(), pixelCount * sizeof(POINT));
+        }
+
+        if (!out.good()) {
+            HCreateLogData("error.log", "Error writing action data");
+            out.close();
+            return;
+        }
+    }
+
+    // Save Redo Actions
+
+    int redoActionCount = static_cast<int>(RedoActions.size());
+    out.write((char*)&redoActionCount, sizeof(redoActionCount));
+    for (const auto& a : RedoActions) {
+        out.write((char*)&a.Tool, sizeof(a.Tool));
+        out.write((char*)&a.Layer, sizeof(a.Layer));
+        out.write((char*)&a.Position, sizeof(a.Position));
+        if (a.Tool == TWrite) {
+            uint32_t textLen = static_cast<uint32_t>(a.Text.size());
+            out.write(reinterpret_cast<const char*>(&textLen), sizeof(textLen));
+            if (textLen > 0) {
+                out.write(reinterpret_cast<const char*>(a.Text.data()),
+                    textLen * sizeof(wchar_t));
+            }
+
+            uint32_t ffLen = static_cast<uint32_t>(a.FontFamily.size());
+            out.write(reinterpret_cast<const char*>(&ffLen), sizeof(ffLen));
+            if (ffLen > 0) {
+                out.write(reinterpret_cast<const char*>(a.FontFamily.data()),
+                    ffLen * sizeof(wchar_t));
+            }
+
+            out.write(reinterpret_cast<const char*>(&a.FontSize), sizeof(a.FontSize));
+            out.write(reinterpret_cast<const char*>(&a.FontWeight), sizeof(a.FontWeight));
+            out.write(reinterpret_cast<const char*>(&a.FontItalic), sizeof(a.FontItalic));
+            out.write(reinterpret_cast<const char*>(&a.FontUnderline), sizeof(a.FontUnderline));
+            out.write(reinterpret_cast<const char*>(&a.FontStrike), sizeof(a.FontStrike));
+        }
+        if (a.Tool == TLayer) {
+            out.write((char*)&a.isLayerVisible, sizeof(a.isLayerVisible));
+            if (!out.good()) {
+                std::cout << "Error Is Layer Visible" << "\n";
+                out.close();
+                return;
+            }
         }
         out.write((char*)&a.Ellipse, sizeof(a.Ellipse));
         out.write((char*)&a.FillColor, sizeof(a.FillColor));
@@ -98,8 +195,7 @@ void SaveBinaryProject(const std::wstring& filename) {
     out.close();
 }
 
-void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE hLayerInstance, int btnWidth, int btnHeight, HWND* hLayerButtons, int layerID, const wchar_t* szButtonClass, const wchar_t* msgText) {
-
+void LoadBinaryProject(const std::wstring& filename) {
     layers.clear();
     layersOrder.clear();
     Actions.clear();
@@ -112,74 +208,78 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
     }
 
     LayerButtons.clear();
-    
+
     HCleanup();
-    layerID = 0;
 
     std::ifstream in(filename, std::ios::binary);
-
-    if (!in.is_open()) {
-        HCreateLogData("error.log", "Failed to open file for reading: " + std::string(filename.begin(), filename.end()));
-        return;
-    }
 
     int magic = 0, version = 0;
     in.read((char*)&magic, sizeof(magic));
     in.read((char*)&version, sizeof(version));
-    
-    if (magic != 0x30444450 || version < 1 || version > 1) {
-        HCreateLogData("error.log", "Invalid file format or version");
-        in.close();
-        return;
-    }
 
     in.read((char*)&width, sizeof(width));
     in.read((char*)&height, sizeof(height));
-
-    if (!in.good() || width <= 0 || height <= 0 || width > 10000 || height > 10000) {
-        HCreateLogData("error.log", "Invalid dimensions or read error");
-        in.close();
-        return;
-    }
 
     in.read((char*)&pixelSizeRatio, sizeof(pixelSizeRatio));
     if (!in.good()) {
         pixelSizeRatio = -1;
     }
+
+    if (width > 512) {
+        btnWidth = 160;
+        btnHeight = 90;
+    }
+    else {
+        btnWidth = 90;
+        btnHeight = 90;
+    }
+
+    RECT rcMain;
+    GetClientRect(mainHWND, &rcMain);
+
+    RECT rc;
+    GetClientRect(layersHWND, &rc);
+
+    SetWindowPos(layersHWND, HWND_BOTTOM, (rcMain.right - rcMain.left) - btnWidth, rc.top, btnWidth, rc.bottom, 0);
     
+    SetWindowPos(buttonUp, HWND_TOP, 0, rc.bottom - btnHeight, btnWidth / 2, btnHeight / 3, 0);
+    SetWindowPos(buttonDown, HWND_TOP, btnWidth / 2, rc.bottom - btnHeight, btnWidth / 2, btnHeight / 3, 0);
+    SetWindowPos(buttonPlus, HWND_TOP, 0, rc.bottom - (btnHeight / 1.5), btnWidth, btnHeight / 3, 0);
+    SetWindowPos(buttonMinus, HWND_TOP, 0, rc.bottom - (btnHeight / 3), btnWidth, btnHeight / 3, 0);
+
+    int layerCount = 0;
+    in.read((char*)&layerCount, sizeof(layerCount));
+
+    layers.clear();
+    for (int i = 0; i < layerCount; ++i) {
+        bool hasValue = false;
+        in.read((char*)&hasValue, sizeof(hasValue));
+        if (hasValue) {
+            Layer l = {};
+            in.read((char*)&l.LayerID, sizeof(l.LayerID));
+            in.read((char*)&l.isActive, sizeof(l.isActive));
+
+            layers.push_back(l);
+
+        }
+        else {
+            layers.push_back(std::nullopt);
+        }
+    }
+
     int layerOrderCount = 0;
     in.read((char*)&layerOrderCount, sizeof(layerOrderCount));
-
-    if (!in.good() || layerOrderCount < 0 || layerOrderCount > 10000) {
-        HCreateLogData("error.log", "Invalid layerOrder count: " + std::to_string(layerOrderCount));
-        in.close();
-        return;
-    }
 
     layersOrder.clear();
     for (int i = 0; i < layerOrderCount; ++i) {
         LayerOrder lo = {};
         in.read((char*)&lo.layerOrder, sizeof(lo.layerOrder));
         in.read((char*)&lo.layerIndex, sizeof(lo.layerIndex));
-
-        if (!in.good()) {
-            HCreateLogData("error.log", "Error reading indexedColors for layerOrder " + std::to_string(i));
-            in.close();
-            return;
-        }
         layersOrder.push_back(lo);
     }
-
+    
     int actionCount = 0;
     in.read((char*)&actionCount, sizeof(actionCount));
-
-    if (!in.good() || actionCount < 0 || actionCount > 1000000) {
-        HCreateLogData("error.log", "Invalid action count: " + std::to_string(actionCount));
-        in.close();
-        return;
-    }
-
-    int maxLayer = -1;
 
     for (int i = 0; i < actionCount; ++i) {
         ACTION a = {};
@@ -187,18 +287,11 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
 
         in.read((char*)&a.Tool, sizeof(a.Tool));
         in.read((char*)&a.Layer, sizeof(a.Layer));
-        if (!in.good() || a.Layer < 0 || a.Layer > 10000) {
-            HCreateLogData("error.log", "Invalid layer index for action " + std::to_string(i) + ": " + std::to_string(a.Layer));
-            in.close();
-            Actions.clear();
-            return;
-        }
 
         in.read((char*)&a.Position, sizeof(a.Position));
         if (a.Tool == TWrite) {
             uint32_t length = 0;
             in.read(reinterpret_cast<char*>(&length), sizeof(length));
-            if (!in.good() || length > 1000000) { /* handle error */ }
             a.Text.resize(length);
             if (length > 0) {
                 in.read(reinterpret_cast<char*>(a.Text.data()), length * sizeof(wchar_t));
@@ -209,7 +302,6 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
 
             length = 0;
             in.read(reinterpret_cast<char*>(&length), sizeof(length));
-            if (!in.good() || length > 1000000) { /* handle error */ }
             a.FontFamily.resize(length);
             if (length > 0) {
                 in.read(reinterpret_cast<char*>(a.FontFamily.data()), length * sizeof(wchar_t));
@@ -224,6 +316,9 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
             in.read(reinterpret_cast<char*>(&a.FontUnderline), sizeof(a.FontUnderline));
             in.read(reinterpret_cast<char*>(&a.FontStrike), sizeof(a.FontStrike));
         }
+        if (a.Tool == TLayer) {
+            in.read((char*)&a.isLayerVisible, sizeof(a.isLayerVisible));
+        }
         in.read((char*)&a.Ellipse, sizeof(a.Ellipse));
         in.read((char*)&a.FillColor, sizeof(a.FillColor));
         in.read((char*)&a.Color, sizeof(a.Color));
@@ -235,126 +330,37 @@ void LoadBinaryProject(const std::wstring& filename, HWND hWndLayer, HINSTANCE h
 
         in.read((char*)&vertexCount, sizeof(vertexCount));
 
-        if (!in.good() || vertexCount < 0 || vertexCount > 1000000) {
-            HCreateLogData("error.log", "Invalid vertex count for action " + std::to_string(i));
-            in.close();
-            Actions.clear();
-            return;
-        }
-
         a.FreeForm.vertices.resize(vertexCount);
         if (vertexCount > 0) {
             in.read((char*)a.FreeForm.vertices.data(), vertexCount * sizeof(VERTICE));
-
-            if (!in.good()) {
-                HCreateLogData("error.log", "Error reading vertices for action " + std::to_string(i));
-                in.close();
-                Actions.clear();
-                return;
-            }
         }
 
         in.read((char*)&pixelCount, sizeof(pixelCount));
-        if (!in.good() || pixelCount < 0 || pixelCount > width * height) {
-            HCreateLogData("error.log", "Invalid pixel count for action " + std::to_string(i));
-            in.close();
-            Actions.clear();
-            return;
-        }
 
         a.pixelsToFill.resize(pixelCount);
-        if (pixelCount > 0) {
-            in.read((char*)a.pixelsToFill.data(), pixelCount * sizeof(POINT));
-            if (!in.good()) {
-                HCreateLogData("error.log", "Error reading pixels for action " + std::to_string(i));
-                in.close();
-                Actions.clear();
-                return;
-            }
-        }
         Actions.push_back(a);
-        maxLayer = (std::max)(maxLayer, a.Layer);
     }
 
     in.close();
+
     HRESULT hr = Initialize(mainHWND, docHWND, width, height, pixelSizeRatio);
 
-    if (FAILED(hr)) {
-        HCreateLogData("error.log", "Failed to initialize after layer setup: HRESULT " + std::to_string(hr));
-        layers.clear();
-        Actions.clear();
-        LayerButtons.clear();
-        return;
-    }
-    
-    layers.clear();
-    layerIndex = 0;
-
-    for (int i = 0; i <= maxLayer; ++i) {
-        HRESULT hr = TAddLayer(true, i);
-        if (FAILED(hr)) {
-            HCreateLogData("error.log", "Failed to add layer " + std::to_string(i) + ": HRESULT " + std::to_string(hr));
-            layers.clear();
-            Actions.clear();
-            LayerButtons.clear();
-            return;
-        }
-
-        int yPos = btnHeight * i;
-        HWND button = CreateWindowEx(
-            0,                            // dwExStyle
-            szButtonClass,               // lpClassName
-            msgText,                     // lpWindowName
-            WS_CHILD | WS_VISIBLE | BS_BITMAP, // dwStyle
-            0,                           // x
-            yPos,                        // y
-            btnWidth,                         // nWidth
-            btnHeight,                   // nHeight
-            hWndLayer,                   // hWndParent
-            (HMENU)(intptr_t)layerID,    // hMenu (control ID)
-            hLayerInstance,              // hInstance
-            NULL                         // lpParam
-        );
-
-        if (button == NULL) {
-            DWORD dwError = GetLastError();
-            wchar_t buffer[256];
-            FormatMessageW(
-                FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                NULL,
-                dwError,
-                0,
-                buffer,
-                sizeof(buffer) / sizeof(wchar_t),
-                NULL
-            );
-
-            HCreateLogData("error.log", "Failed to create button for layer " + std::to_string(layerID) + ": " + std::to_string(dwError));
-
-            layers.clear();
-            Actions.clear();
-            LayerButtons.clear();
-            return;
-        }
-
-        ShowWindow(button, SW_SHOWDEFAULT);
-        UpdateWindow(button);
-
-        hLayerButtons[layerID] = button;
-
-        TAddLayerButton(button);
-
-        if (i < maxLayer) {
-            layerID++;
+    if (SUCCEEDED(hr)) {
+        for (size_t i = 0; i < layerCount; i++) {
+            if (layers[i].has_value()) {
+                layers[i].value().pBitmap = CreateEmptyLayerBitmap();
+                if (layers[i].value().isActive){
+                    TAddLayerButton(layers[i].value().LayerID, true);
+                }
+            }
         }
     }
 
     InitializeLayerRenderPreview();
-
-    for (int i = 0; i <= maxLayer; ++i) {
-        TUpdateLayers(layersOrder[i].layerIndex);
-        //TDrawLayerPreview(layersOrder[i].layerIndex);
+    for (int i = 0; i < layerCount; ++i) {
+        if (layers[i].has_value()) {
+            TUpdateLayers(layers[i].value().LayerID);
+        }
     }
-
     TRenderLayers();
 }

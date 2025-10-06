@@ -86,6 +86,7 @@ void THandleMouseUp() {
                 layers[TLayersCount() - 1].reset();
             }
             layers.pop_back();
+            Actions.pop_back();
 
             isDrawingRectangle = false;
             isDrawingEllipse = false;
@@ -130,27 +131,52 @@ void THandleMouseUp() {
 }
 
 void TUndo() {
-    if (!layers[layerIndex].has_value()) return;
-
     if (Actions.size() > 0) {
         ACTION lastAction = Actions.back();
+
+        if (lastAction.Tool == TLayer) {
+            if (layers[lastAction.Layer].has_value()) {
+                lastAction.isLayerVisible = 0;
+                layers[lastAction.Layer].value().isActive = false;
+                ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_HIDE);
+            }
+        }
+
         RedoActions.push_back(lastAction);
         Actions.pop_back();
 
-        TUpdateLayers(layerIndex);
+        for (size_t i = 0; i < layers.size(); i++)
+        {
+            if (!layers[i].has_value()) continue;
+            TUpdateLayers(layers[i].value().LayerID);
+        }
+
         TRenderLayers();
     }
 }
 
 void TRedo() {
-    if (!layers[layerIndex].has_value()) return;
-
     if (RedoActions.size() > 0) {
         ACTION action = RedoActions.back();
         Actions.push_back(action);
         RedoActions.pop_back();
 
-        TUpdateLayers(layerIndex);
+        action = Actions.back();
+
+        if (action.Tool == TLayer) {
+            if (layers[action.Layer].has_value()) {
+                action.isLayerVisible = 1;
+                layers[action.Layer].value().isActive = true;
+                ShowWindow(LayerButtons[action.Layer].value().button, SW_SHOW);
+            }
+        }
+
+        for (size_t i = 0; i < layers.size(); i++)
+        {
+            if (!layers[i].has_value()) continue;
+            TUpdateLayers(layers[i].value().LayerID);
+        }
+
         TRenderLayers();
     }
 }

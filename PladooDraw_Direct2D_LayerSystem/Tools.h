@@ -9,7 +9,8 @@ enum Tools
 	TLine,
 	TPaintBucket,
 	TMove,
-	TWrite
+	TWrite,
+	TLayer
 };
 
 extern void TEraserTool(int left, int top);

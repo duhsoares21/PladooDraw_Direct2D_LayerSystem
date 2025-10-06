@@ -1,8 +1,6 @@
 #pragma once
 
 extern float TGetZoomFactor();
-extern void TZoomIn_Default();
-extern void TZoomOut_Default();
 extern void TZoomIn(float zoomRatio);
 extern void TZoomOut(float zoomRatio);
 extern void TZoom();
