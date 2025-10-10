@@ -88,9 +88,11 @@ struct LayerButton {
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
 };
 
-struct LayerItem {
-    int LayerID;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> lBitmap;
+struct ReplayFrameButton {
+    int FrameIndex;
+    HWND frame;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
 };
 
 struct PairHash {

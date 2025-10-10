@@ -456,7 +456,6 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
 }
 
 void TInitTextTool(float scaledLeft, float scaledTop, float width, float height) {
-    std::cout << "TINIT_TEXT_TOOL";
     if (isWritingText) return;
     HINSTANCE hInstance = GetModuleHandle(NULL);
 
@@ -485,8 +484,6 @@ void TWriteTool(int x, int y) {
         return;
     }
 
-    std::cout << "TWRITE_TOOL";
-
     float scaledX = static_cast<float>(x) / zoomFactor;
     float scaledY = static_cast<float>(y) / zoomFactor;
     float scaledW = 200 / zoomFactor;
@@ -513,7 +510,6 @@ void TWriteTool(int x, int y) {
 }
 
 void TWriteToolCommitText() {
-    std::cout << "TWRITE_TOOL_COMMIT_TEXT";
     if (!layers[layerIndex].has_value()) return;
 
     wchar_t buffer[1024] = {};

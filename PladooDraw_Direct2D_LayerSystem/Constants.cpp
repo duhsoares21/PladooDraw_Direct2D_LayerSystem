@@ -9,6 +9,8 @@ std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 HWND mainHWND = NULL;
 HWND docHWND = NULL;
 HWND layersHWND = NULL;
+HWND toolsHWND = NULL;
+HWND replayHWND = NULL;
 HWND* hLayerButtons = NULL;
 
 Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
@@ -32,6 +34,8 @@ Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
 
 float logicalWidth = 0.0f;
 float logicalHeight = 0.0f;
+
+int lastActiveReplayFrame = 0;
 
 D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
 D2D1_RECT_F rectangle = D2D1::RectF(0, 0, 0, 0);
@@ -62,6 +66,7 @@ float zoomFactor = 1.0f;
 int pixelSizeRatio = -1;
 
 bool isPixelMode = false;
+int isReplayMode = 0;
 
 bool isDrawingRectangle = false;
 bool isDrawingEllipse = false;
@@ -72,6 +77,7 @@ bool isPaintBucket = false;
 bool isWritingText = false;
 
 HWND hTextInput = nullptr;
+HWND highlightFrame = nullptr;
 WNDPROC oldEditProc;
 
 std::string loadedFileName;
@@ -83,6 +89,10 @@ std::vector<std::optional<Layer>> layers;
 
 std::vector<ACTION> Actions;
 std::vector<ACTION> RedoActions;
+
+std::vector<ACTION> ReplayActions;
+std::vector<ACTION> ReplayRedoActions;
+
 std::vector<VERTICE> Vertices;
 std::vector<std::pair<int, int>> pixelsToFill;
 
@@ -92,7 +102,7 @@ int btnWidth = 90, btnHeight = 90;
 HWND buttonUp, buttonDown, buttonPlus, buttonMinus;
 
 std::vector<std::optional<LayerButton>> LayerButtons;
-std::vector<std::optional<LayerItem>> LayerItems;
+std::vector<std::optional<ReplayFrameButton>> ReplayFrameButtons;
 
 POINT mouseLastClickPosition = { 0, 0 };
 

@@ -11,7 +11,7 @@
 HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio) {
     mainHWND = pmainHWND;
     docHWND = pdocHWND;
-
+    
     D2D1_FACTORY_OPTIONS options = { D2D1_DEBUG_LEVEL_INFORMATION };
     HRESULT factoryResult = D2D1CreateFactory(
         D2D1_FACTORY_TYPE_MULTI_THREADED,
@@ -22,7 +22,7 @@ HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int 
 
     if (FAILED(factoryResult)) {
         MessageBox(pdocHWND, L"Erro ao criar Factory", L"Erro", MB_OK);
-
+            
         return factoryResult;
     }
 
@@ -190,6 +190,18 @@ HRESULT TInitializeLayerRenderPreview() {
 
 HRESULT TInitializeLayers(HWND hWnd) {
     layersHWND = hWnd;
+
+    return S_OK;
+}
+
+HRESULT TInitializeTools(HWND hWnd) {
+    toolsHWND = hWnd;
+
+    return S_OK;
+}
+
+HRESULT TInitializeReplay(HWND hWnd) {
+    replayHWND = hWnd;
 
     return S_OK;
 }

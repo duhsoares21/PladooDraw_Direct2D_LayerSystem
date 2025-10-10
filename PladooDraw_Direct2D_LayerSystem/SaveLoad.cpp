@@ -126,73 +126,6 @@ void SaveBinaryProject(const std::wstring& filename) {
             return;
         }
     }
-
-    // Save Redo Actions
-
-    int redoActionCount = static_cast<int>(RedoActions.size());
-    out.write((char*)&redoActionCount, sizeof(redoActionCount));
-    for (const auto& a : RedoActions) {
-        out.write((char*)&a.Tool, sizeof(a.Tool));
-        out.write((char*)&a.Layer, sizeof(a.Layer));
-        out.write((char*)&a.Position, sizeof(a.Position));
-        if (a.Tool == TWrite) {
-            uint32_t textLen = static_cast<uint32_t>(a.Text.size());
-            out.write(reinterpret_cast<const char*>(&textLen), sizeof(textLen));
-            if (textLen > 0) {
-                out.write(reinterpret_cast<const char*>(a.Text.data()),
-                    textLen * sizeof(wchar_t));
-            }
-
-            uint32_t ffLen = static_cast<uint32_t>(a.FontFamily.size());
-            out.write(reinterpret_cast<const char*>(&ffLen), sizeof(ffLen));
-            if (ffLen > 0) {
-                out.write(reinterpret_cast<const char*>(a.FontFamily.data()),
-                    ffLen * sizeof(wchar_t));
-            }
-
-            out.write(reinterpret_cast<const char*>(&a.FontSize), sizeof(a.FontSize));
-            out.write(reinterpret_cast<const char*>(&a.FontWeight), sizeof(a.FontWeight));
-            out.write(reinterpret_cast<const char*>(&a.FontItalic), sizeof(a.FontItalic));
-            out.write(reinterpret_cast<const char*>(&a.FontUnderline), sizeof(a.FontUnderline));
-            out.write(reinterpret_cast<const char*>(&a.FontStrike), sizeof(a.FontStrike));
-        }
-        if (a.Tool == TLayer) {
-            out.write((char*)&a.isLayerVisible, sizeof(a.isLayerVisible));
-            if (!out.good()) {
-                std::cout << "Error Is Layer Visible" << "\n";
-                out.close();
-                return;
-            }
-        }
-        out.write((char*)&a.Ellipse, sizeof(a.Ellipse));
-        out.write((char*)&a.FillColor, sizeof(a.FillColor));
-        out.write((char*)&a.Color, sizeof(a.Color));
-        out.write((char*)&a.BrushSize, sizeof(a.BrushSize));
-        out.write((char*)&a.IsFilled, sizeof(a.IsFilled));
-        out.write((char*)&a.isPixelMode, sizeof(a.isPixelMode));
-        out.write((char*)&a.mouseX, sizeof(a.mouseX));
-        out.write((char*)&a.mouseY, sizeof(a.mouseY));
-
-        int vertexCount = static_cast<int>(a.FreeForm.vertices.size());
-        out.write((char*)&vertexCount, sizeof(vertexCount));
-        if (vertexCount > 0) {
-            out.write((char*)a.FreeForm.vertices.data(), vertexCount * sizeof(VERTICE));
-        }
-
-        int pixelCount = static_cast<int>(a.pixelsToFill.size());
-        out.write((char*)&pixelCount, sizeof(pixelCount));
-        if (pixelCount > 0) {
-            out.write((char*)a.pixelsToFill.data(), pixelCount * sizeof(POINT));
-        }
-
-        if (!out.good()) {
-            HCreateLogData("error.log", "Error writing action data");
-            out.close();
-            return;
-        }
-    }
-
-    out.close();
 }
 
 void LoadBinaryProject(const std::wstring& filename) {
@@ -336,8 +269,11 @@ void LoadBinaryProject(const std::wstring& filename) {
         }
 
         in.read((char*)&pixelCount, sizeof(pixelCount));
+        if (pixelCount > 0) {
+            a.pixelsToFill.resize(pixelCount);
+            in.read((char*)a.pixelsToFill.data(), pixelCount * sizeof(POINT));
+        }
 
-        a.pixelsToFill.resize(pixelCount);
         Actions.push_back(a);
     }
 

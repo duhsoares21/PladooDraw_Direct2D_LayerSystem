@@ -4,6 +4,7 @@
 #include "Helpers.h"
 #include "Layers.h"
 #include "Tools.h"
+#include "Replay.h"
 
 /* TOOLS AUX */
 
@@ -178,6 +179,28 @@ void TRedo() {
         }
 
         TRenderLayers();
+    }
+}
+
+void TReplayBackwards() {
+    if (Actions.size() > 0) {
+        ACTION lastAction = Actions.back();
+        RedoActions.push_back(lastAction);
+        Actions.pop_back();
+
+        lastActiveReplayFrame--;
+        HOnScrollWheelReplay(1);
+    }
+}
+
+void TReplayForward() {
+    if (RedoActions.size() > 0) {
+        ACTION action = RedoActions.back();
+        Actions.push_back(action);
+        RedoActions.pop_back();
+
+        lastActiveReplayFrame++;
+        HOnScrollWheelReplay(-1);
     }
 }
 

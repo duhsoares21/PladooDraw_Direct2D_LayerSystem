@@ -166,6 +166,7 @@
     <ClInclude Include="Main.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Render.h" />
+    <ClInclude Include="Replay.h" />
     <ClInclude Include="SaveLoad.h" />
     <ClInclude Include="Structs.h" />
     <ClInclude Include="SurfaceDial.h" />
@@ -186,6 +187,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Render.cpp" />
+    <ClCompile Include="Replay.cpp" />
     <ClCompile Include="SaveLoad.cpp" />
     <ClCompile Include="SurfaceDial.cpp" />
     <ClCompile Include="SvgExporter.cpp" />

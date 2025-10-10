@@ -10,17 +10,19 @@
 
 // Função para converter COLORREF para string hexadecimal SVG
 std::string ColorRefToSvgHex(COLORREF color) {
-    std::stringstream ss;
-    ss << "#"
-        << std::hex << std::setw(2) << std::setfill('0') << ((color >> 0) & 0xFF) // Blue
-        << std::hex << std::setw(2) << std::setfill('0') << ((color >> 8) & 0xFF) // Green
-        << std::hex << std::setw(2) << std::setfill('0') << ((color >> 16) & 0xFF); // Red
-    return ss.str();
+    unsigned int r = GetRValue(color);
+    unsigned int g = GetGValue(color);
+    unsigned int b = GetBValue(color);
+
+    char buf[8];
+    sprintf_s(buf, "#%02X%02X%02X", r, g, b);
+    return std::string(buf);
 }
 
 // Função para exportar Actions para SVG com upscaling
 void ExportActionsToSvg(const std::vector<ACTION>& actions, const std::string& filename, float scaleFactor, int originalWidth, int originalHeight) {
     std::ofstream svgFile(filename);
+
     if (!svgFile.is_open()) {
         std::cerr << "Erro ao abrir o arquivo SVG: " << filename << std::endl;
         return;
@@ -38,6 +40,8 @@ void ExportActionsToSvg(const std::vector<ACTION>& actions, const std::string& f
     std::map<COLORREF, std::vector<POINT>> consolidatedPaintBucketPixels;
 
     for (const auto& action : actions) {
+        std::cout << "Export Action Tool=" << action.Tool << " Color=0x" << std::hex << action.Color << std::dec << "\n";
+
         switch (action.Tool) {
         case TEraser: // Eraser (não exportado para SVG, pois é uma operação de limpeza)
             break;
@@ -101,9 +105,31 @@ void ExportActionsToSvg(const std::vector<ACTION>& actions, const std::string& f
         }
         case TPaintBucket: // Paint Bucket
         {
-            // Coleta todos os pixels do paint bucket para consolidação posterior
-            for (const auto& pixel : action.pixelsToFill) {
-                consolidatedPaintBucketPixels[action.FillColor].push_back(pixel);
+            auto pixels = action.pixelsToFill; // cria cópia pra ordenar
+            std::sort(pixels.begin(), pixels.end(), [](const POINT& a, const POINT& b) {
+                return (a.y < b.y) || (a.y == b.y && a.x < b.x);
+                });
+
+            size_t i = 0;
+            while (i < pixels.size()) {
+                LONG startX = pixels[i].x;
+                LONG y = pixels[i].y;
+                size_t j = i + 1;
+
+                // estende enquanto pixels forem contíguos horizontalmente
+                while (j < pixels.size() && pixels[j].y == y && pixels[j].x == startX + (j - i)) {
+                    ++j;
+                }
+
+                // Output merged rect para o run
+                float x = startX * zoomFactor * scaleFactor;
+                float rectY = y * zoomFactor * scaleFactor;
+                float width = (j - i) * zoomFactor * scaleFactor;
+                float height = zoomFactor * scaleFactor;
+                svgFile << "  <rect x=\"" << x << "\" y=\"" << rectY << "\" width=\"" << width
+                    << "\" height=\"" << height << "\" fill=\"" << ColorRefToSvgHex(action.FillColor) << "\" />\n";
+
+                i = j;
             }
             break;
         }
@@ -147,38 +173,17 @@ void ExportActionsToSvg(const std::vector<ACTION>& actions, const std::string& f
         }
     }
 
-    // Exporta os pixels consolidados do Paint Bucket
-    for (const auto& pair : consolidatedPaintBucketPixels) {
-        COLORREF fillColor = pair.first;
-        auto pixels = pair.second;  // Copy to sort
-
-        std::sort(pixels.begin(), pixels.end(), [](const POINT& a, const POINT& b) {
-            return (a.y < b.y) || (a.y == b.y && a.x < b.x);
-            });
-
-        // Now merge into horizontal runs
-        for (size_t i = 0; i < pixels.size(); ) {
-            LONG startX = pixels[i].x;
-            LONG y = pixels[i].y;
-            size_t j = i + 1;
-            while (j < pixels.size() && pixels[j].y == y && pixels[j].x == startX + (j - i)) {
-                ++j;  // Extend run if contiguous in x
-            }
-
-            // Output merged rect for this run
-            float x = startX * zoomFactor * scaleFactor;
-            float rectY = y * zoomFactor * scaleFactor;  // Renamed to avoid shadowing
-            float width = (j - i) * zoomFactor * scaleFactor;
-            float height = zoomFactor * scaleFactor;
-            svgFile << "  <rect x=\"" << x << "\" y=\"" << rectY << "\" width=\"" << width << "\" height=\"" << height << "\" fill=\"" << ColorRefToSvgHex(fillColor) << "\" />\n";
-
-            i = j;  // Move to next run
-        }
-    }
-
     svgFile << "</svg>\n";
     svgFile.close();
     std::cout << "SVG exportado com sucesso para: " << filename << std::endl;
+
+    std::string fileName = "imagem.svg";
+    std::string text = "SVG Exportado com sucesso para " + fileName;
+
+    LPCSTR message = text.c_str();
+    LPCSTR title = "SVG Exporter";
+
+    MessageBoxA(mainHWND, message, title, MB_OK);
 }
 
 

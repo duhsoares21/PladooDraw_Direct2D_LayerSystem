@@ -11,6 +11,7 @@
 #include "ToolsAux.h"
 #include "Transforms.h"
 #include "SvgExporter.h"
+#include "Replay.h"
 
 /* MAIN */
 
@@ -95,6 +96,14 @@ HRESULT InitializeLayers(HWND hWnd) {
     return TInitializeLayers(hWnd);
 }
 
+HRESULT InitializeTools(HWND hWnd) {
+    return TInitializeTools(hWnd);
+}
+
+HRESULT InitializeReplay(HWND hWnd) {
+    return TInitializeReplay(hWnd);
+}
+
 HRESULT InitializeLayersButtons(HWND* buttonsHwnd) {
     return TInitializeLayersButtons(buttonsHwnd);
 }
@@ -168,6 +177,14 @@ void handleMouseUp() {
     THandleMouseUp();
 }
 
+void EditFromThisPoint() {
+    TEditFromThisPoint();
+}
+
+void SetReplayMode(int pReplayMode) {
+    HSetReplayMode(pReplayMode);
+}
+
 void Undo() {
     TUndo();
 }
@@ -176,10 +193,22 @@ void Redo() {
     TRedo();
 }
 
+void ReplayBackwards() {
+    TReplayBackwards();
+}
+
+void ReplayForward() {
+    TReplayForward();
+}
+
 /* TRANSFORM */
 
 float __stdcall GetZoomFactor() {
     return TGetZoomFactor();
+}
+
+void __stdcall SetZoomFactor(int pZoomFactor) {
+    TSetZoomFactor(pZoomFactor);
 }
 
 void ZoomIn_Default() {
@@ -389,4 +418,8 @@ void Cleanup() {
 
 void OnScrollWheelLayers(int wParam) {
     HOnScrollWheelLayers(wParam);
+}
+
+void OnScrollWheelReplay(int wParam) {
+    HOnScrollWheelReplay(wParam);
 }

@@ -1,7 +1,11 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Constants.h"
 #include "Helpers.h"
 #include "Tools.h"
+#include "Layers.h"
+#include "SurfaceDial.h"
+#include "Replay.h"
+#include "ToolsAux.h"
 
 int g_scrollOffset = 0;
 
@@ -21,6 +25,167 @@ int HGetActiveLayersCount() {
     count = count > countHidden ? count - countHidden : countHidden - count;
 
     return count;
+}
+
+void HSetReplayMode(int pReplayMode) {
+    isReplayMode = pReplayMode;
+
+    if (isReplayMode == 1) {
+
+        ReplayActions = Actions;
+        ReplayRedoActions = RedoActions;
+
+        std::vector<ACTION> filteredActions;
+
+        for (int i = 0; i < Actions.size(); i++) {
+            if (Actions[i].Tool == TLayer) continue;
+            filteredActions.push_back(Actions[i]);
+        }
+
+        std::reverse(filteredActions.begin(), filteredActions.end());
+
+        RedoActions = filteredActions;
+        Actions.clear();
+
+        if (ReplayFrameButtons.size() > 0) {
+            
+            if (ReplayFrameButtons.size() == RedoActions.size()) {
+                for (int i = 0; i < lastActiveReplayFrame; i++) {
+                    TReplayForward();
+                }
+            }
+            else {
+                for (int i = 0; i < ReplayFrameButtons.size(); i++) {
+                    DestroyWindow(ReplayFrameButtons[i].value().frame);
+                    ReplayFrameButtons[i].reset();
+                }
+
+                ReplayFrameButtons.clear();
+
+                int totalFrames = static_cast<int>(RedoActions.size()) + 1;  // N+1 frames (0 vazio)
+
+                for (int i = 0; i < totalFrames; i++) {
+                    TCreateReplayFrame(i);
+                }
+            }
+
+        }
+        else {
+            int totalFrames = static_cast<int>(RedoActions.size()) + 1;  // N+1 frames (0 vazio)
+
+            for (int i = 0; i < totalFrames; i++) {
+                TCreateReplayFrame(i);
+            }
+        }
+        
+        HCreateHighlightFrame();
+        TSetReplayHighlight();
+        TReplayRender();
+    }
+    else {
+        Actions.clear();
+        RedoActions.clear();
+
+        Actions = ReplayActions;
+        RedoActions = ReplayRedoActions;
+    }
+
+    CleanupSurfaceDial();
+    InitializeSurfaceDial(mainHWND);
+}
+
+void HCreateHighlightFrame() {
+    HINSTANCE hReplayInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(replayHWND, GWLP_HINSTANCE));
+
+    DWORD style = WS_CHILD | WS_VISIBLE | BS_BITMAP;
+
+    highlightFrame = CreateWindowEx(
+        0,
+        L"Button",
+        L"",
+        style,
+        btnWidth * 0,
+        0,
+        btnWidth,
+        10,
+        replayHWND,
+        (HMENU)(intptr_t)-1,
+        hReplayInstance,
+        NULL
+    );
+
+    RECT rc;
+    GetClientRect(highlightFrame, &rc);
+    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
+
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> replayDeviceContext;
+    HRESULT hr = g_pD2DDevice->CreateDeviceContext(
+        D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
+        replayDeviceContext.GetAddressOf()
+    );
+
+    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
+    hr = g_pD3DDevice.As(&dxgiDevice);
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    hr = dxgiDevice->GetAdapter(&adapter);
+
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
+    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
+
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
+    swapDesc.Width = size.width;
+    swapDesc.Height = size.height;
+    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    swapDesc.SampleDesc.Count = 1;
+    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapDesc.BufferCount = 2;
+    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> replaySwapChain;
+    hr = dxgiFactory->CreateSwapChainForHwnd(
+        g_pD3DDevice.Get(),
+        highlightFrame,
+        &swapDesc,
+        nullptr, nullptr,
+        &replaySwapChain
+    );
+
+    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
+    replaySwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
+    D2D1_BITMAP_PROPERTIES1 bitmapProperties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+    );
+
+    replayDeviceContext->CreateBitmapFromDxgiSurface(
+        backBuffer.Get(),
+        &bitmapProperties,
+        &targetBitmap
+    );
+
+    replayDeviceContext->SetTarget(targetBitmap.Get());
+
+    replayDeviceContext->BeginDraw();
+    replayDeviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1));
+
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> highlightReplayBrush;
+
+    D2D1_COLOR_F color = D2D1::ColorF(0, 0, 1, 1);
+
+    if (highlightReplayBrush == nullptr) {
+        replayDeviceContext->CreateSolidColorBrush(color, &highlightReplayBrush);
+    }
+    else {
+        highlightReplayBrush->SetColor(color);
+    }
+
+    replayDeviceContext->FillRectangle(D2D1::RectF(rc.left, rc.top, rc.right, rc.bottom), highlightReplayBrush.Get());
+    replayDeviceContext->EndDraw();
+
+    replaySwapChain->Present(1, 0);
 }
 
 void HSetSelectedTool(int pselectedTool) {
@@ -118,9 +283,9 @@ void HCleanup() {
         }
     }
 
-    for (auto& layerItems : LayerItems) {
-        if (layerItems.has_value()) {
-            layerItems.reset();
+    for (auto& replayFrames : ReplayFrameButtons) {
+        if (replayFrames.has_value()) {
+            replayFrames.reset();
         }
     }
 
@@ -129,6 +294,7 @@ void HCleanup() {
     Actions.clear();
     RedoActions.clear();
     LayerButtons.clear();
+    ReplayFrameButtons.clear();
 
     // Release D3D resources
     g_pSwapChain.Reset();
@@ -177,11 +343,43 @@ void HOnScrollWheelLayers(int wParam) {
         int currentLayerIndex = result[i].layerIndex;
 
         int x = 0;
-        int y = (int)(i * itemHeight) - g_scrollOffset; // posição base - offset
+        int y = (int)(i * itemHeight) - g_scrollOffset; // posiÃ§Ã£o base - offset
 
         MoveWindow(LayerButtons[currentLayerIndex].value().button,
             x, y, itemHeight, itemHeight, TRUE);
     }
+}
+
+void HOnScrollWheelReplay(int wParam) {
+    int direction = (wParam > 0) ? -1 : 1;
+
+    int delta = btnWidth;
+   
+    int itemWidth = btnWidth;
+    int contentWidth = (int)ReplayFrameButtons.size() * itemWidth;
+
+    RECT parentRc;
+    GetClientRect(replayHWND, &parentRc);
+    int viewWidth = parentRc.right - parentRc.left;
+
+    g_scrollOffset += direction * delta;
+
+    RECT rcParent;
+    GetClientRect(replayHWND, &rcParent);
+
+    int replayParentWidth = rcParent.right - rcParent.left;
+
+    for (size_t i = 0; i < ReplayFrameButtons.size(); i++) {
+        int currentFrameIndex = ReplayFrameButtons[i].value().FrameIndex;
+
+        int x = ((replayParentWidth / 2) - (itemWidth / 2) + (itemWidth * i)) - g_scrollOffset;
+        int y = 10;
+
+        MoveWindow(ReplayFrameButtons[currentFrameIndex].value().frame,
+            x, y, itemWidth, itemWidth, TRUE);
+    }
+
+    TReplayRender();
 }
 
 template <class T> void SafeRelease(T** ppT)  

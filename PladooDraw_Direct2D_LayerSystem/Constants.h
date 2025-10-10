@@ -12,6 +12,9 @@ extern std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 extern HWND mainHWND;
 extern HWND docHWND;
 extern HWND layersHWND;
+extern HWND toolsHWND;
+extern HWND replayHWND;
+extern HWND highlightFrame;
 extern HWND* hLayerButtons;
 
 extern Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush;
@@ -35,6 +38,9 @@ extern Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
 
 extern float logicalWidth;
 extern float logicalHeight;
+
+extern int lastActiveReplayFrame;
+extern int lastActiveReplayFramePrev;
 
 extern D2D1_ELLIPSE ellipse;
 extern D2D1_RECT_F rectangle;
@@ -65,6 +71,7 @@ extern float zoomFactor;
 extern int pixelSizeRatio;
 
 extern bool isPixelMode;
+extern int isReplayMode;
 
 extern bool isDrawingRectangle;
 extern bool isDrawingEllipse;
@@ -87,6 +94,10 @@ extern std::vector<std::optional<Layer>> layers;
 
 extern std::vector<ACTION> Actions;
 extern std::vector<ACTION> RedoActions;
+
+extern std::vector<ACTION> ReplayActions;
+extern std::vector<ACTION> ReplayRedoActions;
+
 extern std::vector<VERTICE> Vertices;
 extern std::vector<std::pair<int, int>> pixelsToFill;
 
@@ -97,7 +108,7 @@ extern int btnWidth, btnHeight;
 extern HWND buttonUp, buttonDown, buttonPlus, buttonMinus;
 
 extern std::vector<std::optional<LayerButton>> LayerButtons;
-extern std::vector<std::optional<LayerItem>> LayerItems;
+extern std::vector<std::optional<ReplayFrameButton>> ReplayFrameButtons;
 
 extern POINT mouseLastClickPosition;
 

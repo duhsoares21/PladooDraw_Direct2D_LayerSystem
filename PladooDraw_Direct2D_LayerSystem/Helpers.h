@@ -1,6 +1,7 @@
 #pragma once
 
 extern int HGetActiveLayersCount();
+extern void HSetReplayMode(int pReplayMode);
 extern void HSetSelectedTool(int pselectedTool);
 extern void HCreateLogData(std::string fileName, std::string content);
 extern D2D1_COLOR_F HGetRGBColor(COLORREF color);
@@ -10,3 +11,6 @@ extern void HPrintHResultError(HRESULT hr);
 extern void HCleanup();
 
 extern void HOnScrollWheelLayers(int wParam);
+extern void HOnScrollWheelReplay(int wParam);
+
+extern void HCreateHighlightFrame();

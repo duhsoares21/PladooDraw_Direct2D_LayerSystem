@@ -9,6 +9,8 @@ extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidt
 extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview();
 extern "C" __declspec(dllexport) HRESULT InitializeLayersButtons(HWND* buttonsHwnd);
 extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
+extern "C" __declspec(dllexport) HRESULT InitializeTools(HWND hWnd);
+extern "C" __declspec(dllexport) HRESULT InitializeReplay(HWND hWnd);
 
 extern "C" __declspec(dllexport) void SetSelectedTool(int pselectedTool);
 extern "C" __declspec(dllexport) void __stdcall ExportSVG();
@@ -21,9 +23,14 @@ extern "C" __declspec(dllexport) void __stdcall LoadProjectDllW(LPWSTR lppath);
 extern "C" __declspec(dllexport) void CreateLogData(std::string fileName, std::string content);
 
 extern "C" __declspec(dllexport) void handleMouseUp();
+extern "C" __declspec(dllexport) void SetReplayMode(int pReplayMode);
+extern "C" __declspec(dllexport) void EditFromThisPoint();
 extern "C" __declspec(dllexport) void Undo();
 extern "C" __declspec(dllexport) void Redo();
+extern "C" __declspec(dllexport) void ReplayBackwards();
+extern "C" __declspec(dllexport) void ReplayForward();
 extern "C" __declspec(dllexport) float __stdcall GetZoomFactor();
+extern "C" __declspec(dllexport) void __stdcall SetZoomFactor(int pZoomFactor);
 extern "C" __declspec(dllexport) void ZoomIn_Default();
 extern "C" __declspec(dllexport) void ZoomOut_Default();
 extern "C" __declspec(dllexport) void ZoomIn(float zoomIncrement);
@@ -62,3 +69,4 @@ extern "C" __declspec(dllexport) void WriteTool(int x, int y);
 extern "C" __declspec(dllexport) void Cleanup();
 
 extern "C" __declspec(dllexport) void OnScrollWheelLayers(int wParam);
+extern "C" __declspec(dllexport) void OnScrollWheelReplay(int wParam);

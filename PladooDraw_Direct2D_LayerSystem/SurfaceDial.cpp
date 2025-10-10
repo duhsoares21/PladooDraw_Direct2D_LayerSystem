@@ -15,6 +15,7 @@
 #include <dispatcherqueue.h>           
 #include <winrt/base.h>                
 #include <iostream>
+#include "ToolsAux.h"
 
 using namespace winrt;
 using namespace winrt::Windows::UI::Input;
@@ -65,13 +66,20 @@ void InitializeSurfaceDial(HWND hwnd)
 
     static std::vector<RadialControllerMenuItem> g_menuItems;
         
-    auto zoom = RadialControllerMenuItem::CreateFromKnownIcon(L"Zoom", RadialControllerMenuKnownIcon::Zoom);
-    auto brushSize = RadialControllerMenuItem::CreateFromKnownIcon(L"Brush Size", RadialControllerMenuKnownIcon::InkThickness);
 
     g_menuItems.clear();
 
-    g_menuItems.push_back(zoom);
-    g_menuItems.push_back(brushSize);
+    if (isReplayMode == 1) {
+        auto Navigate = RadialControllerMenuItem::CreateFromKnownIcon(L"Navigate", RadialControllerMenuKnownIcon::NextPreviousTrack);
+        g_menuItems.push_back(Navigate);
+    }
+    else {
+        auto zoom = RadialControllerMenuItem::CreateFromKnownIcon(L"Zoom", RadialControllerMenuKnownIcon::Zoom);
+        auto brushSize = RadialControllerMenuItem::CreateFromKnownIcon(L"Brush Size", RadialControllerMenuKnownIcon::InkThickness);
+
+        g_menuItems.push_back(zoom);
+        g_menuItems.push_back(brushSize);
+    }
 
     menu.Items().Clear();
 
@@ -79,7 +87,13 @@ void InitializeSurfaceDial(HWND hwnd)
         menu.Items().Append(item);
     }
     
-    g_controller.RotationResolutionInDegrees(0.3);
+    if (isReplayMode == 1) {
+        g_controller.RotationResolutionInDegrees(1.0);
+    }
+    else {
+        g_controller.RotationResolutionInDegrees(0.3);
+    }
+    
     g_controller.UseAutomaticHapticFeedback(false);
 
     g_rotationToken = g_controller.RotationChanged(  
@@ -120,11 +134,21 @@ void OnDialRotation(int menuIndex, int direction, float rotationDegrees) {
     if (direction == 0) return;
 
     if (menuIndex == 0) {
-        if (direction > 0) {
-            TZoomIn(rotationDegrees * 0.1f);
+        if (isReplayMode == 1) {
+            if (direction > 0) {
+                TReplayForward();
+            }
+            else {
+                TReplayBackwards();
+            }
         }
         else {
-            TZoomOut((rotationDegrees * 0.1f) * -1.0f);
+            if (direction > 0) {
+                TZoomIn(rotationDegrees * 0.1f);
+            }
+            else {
+                TZoomOut((rotationDegrees * 0.1f) * -1.0f);
+            }
         }
     }
     else if (menuIndex == 1) {
@@ -137,10 +161,26 @@ void OnDialRotation(int menuIndex, int direction, float rotationDegrees) {
     }
 }
 
+int command = 0;
 void OnDialButtonClick(int menuIndex) {
     if (menuIndex == 0) {
-        zoomFactor = 1.0f;
-        TZoom();
+        if (isReplayMode == 1) {
+            KillTimer(replayHWND, 1);
+            KillTimer(replayHWND, 2);
+            KillTimer(replayHWND, 3);
+
+            if (command == 2) {
+                command = 0;
+            }
+            else {
+                SetTimer(replayHWND, 2, 300, NULL);
+                command = 2;
+            }
+        }
+        else {
+            zoomFactor = 1.0f;
+            TZoom();
+        }
     }
     else if (menuIndex == 1) {
         if (selectedTool == TBrush) {
