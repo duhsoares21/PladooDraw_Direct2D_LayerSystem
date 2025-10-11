@@ -39,8 +39,8 @@ extern Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
 extern float logicalWidth;
 extern float logicalHeight;
 
+extern int g_scrollOffsetReplay;
 extern int lastActiveReplayFrame;
-extern int lastActiveReplayFramePrev;
 
 extern D2D1_ELLIPSE ellipse;
 extern D2D1_RECT_F rectangle;

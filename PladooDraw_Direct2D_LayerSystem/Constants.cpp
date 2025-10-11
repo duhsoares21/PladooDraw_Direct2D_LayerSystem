@@ -36,6 +36,7 @@ float logicalWidth = 0.0f;
 float logicalHeight = 0.0f;
 
 int lastActiveReplayFrame = 0;
+int g_scrollOffsetReplay = 0;
 
 D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
 D2D1_RECT_F rectangle = D2D1::RectF(0, 0, 0, 0);

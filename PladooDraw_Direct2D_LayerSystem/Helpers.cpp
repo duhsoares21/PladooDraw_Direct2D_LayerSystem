@@ -32,6 +32,9 @@ void HSetReplayMode(int pReplayMode) {
 
     if (isReplayMode == 1) {
 
+        lastActiveReplayFrame = 0;
+        g_scrollOffsetReplay = 0;
+
         ReplayActions = Actions;
         ReplayRedoActions = RedoActions;
 
@@ -47,7 +50,20 @@ void HSetReplayMode(int pReplayMode) {
         RedoActions = filteredActions;
         Actions.clear();
 
-        if (ReplayFrameButtons.size() > 0) {
+        for (int i = 0; i < ReplayFrameButtons.size(); i++) {
+            DestroyWindow(ReplayFrameButtons[i].value().frame);
+            ReplayFrameButtons[i].reset();
+        }
+
+        ReplayFrameButtons.clear();
+
+        int totalFrames = static_cast<int>(RedoActions.size()) + 1;  // N+1 frames (0 vazio)
+
+        for (int i = 0; i < totalFrames; i++) {
+            TCreateReplayFrame(i);
+        }
+
+        /*if (ReplayFrameButtons.size() > 0) {
             
             if (ReplayFrameButtons.size() == RedoActions.size()) {
                 for (int i = 0; i < lastActiveReplayFrame; i++) {
@@ -55,20 +71,8 @@ void HSetReplayMode(int pReplayMode) {
                 }
             }
             else {
-                for (int i = 0; i < ReplayFrameButtons.size(); i++) {
-                    DestroyWindow(ReplayFrameButtons[i].value().frame);
-                    ReplayFrameButtons[i].reset();
-                }
-
-                ReplayFrameButtons.clear();
-
-                int totalFrames = static_cast<int>(RedoActions.size()) + 1;  // N+1 frames (0 vazio)
-
-                for (int i = 0; i < totalFrames; i++) {
-                    TCreateReplayFrame(i);
-                }
+                
             }
-
         }
         else {
             int totalFrames = static_cast<int>(RedoActions.size()) + 1;  // N+1 frames (0 vazio)
@@ -76,7 +80,7 @@ void HSetReplayMode(int pReplayMode) {
             for (int i = 0; i < totalFrames; i++) {
                 TCreateReplayFrame(i);
             }
-        }
+        }*/
         
         HCreateHighlightFrame();
         TSetReplayHighlight();
@@ -362,7 +366,7 @@ void HOnScrollWheelReplay(int wParam) {
     GetClientRect(replayHWND, &parentRc);
     int viewWidth = parentRc.right - parentRc.left;
 
-    g_scrollOffset += direction * delta;
+    g_scrollOffsetReplay += direction * delta;
 
     RECT rcParent;
     GetClientRect(replayHWND, &rcParent);
@@ -372,7 +376,7 @@ void HOnScrollWheelReplay(int wParam) {
     for (size_t i = 0; i < ReplayFrameButtons.size(); i++) {
         int currentFrameIndex = ReplayFrameButtons[i].value().FrameIndex;
 
-        int x = ((replayParentWidth / 2) - (itemWidth / 2) + (itemWidth * i)) - g_scrollOffset;
+        int x = ((replayParentWidth / 2) - (itemWidth / 2) + (itemWidth * i)) - g_scrollOffsetReplay;
         int y = 10;
 
         MoveWindow(ReplayFrameButtons[currentFrameIndex].value().frame,

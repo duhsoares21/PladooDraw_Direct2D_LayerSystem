@@ -344,5 +344,4 @@ void TEditFromThisPoint() {
 
         int clicked = MessageBoxA(mainHWND, message, title, MB_OK);
     }
-
 }
