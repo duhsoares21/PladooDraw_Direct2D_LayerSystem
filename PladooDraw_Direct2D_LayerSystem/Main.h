@@ -4,11 +4,13 @@
 
 extern "C" __declspec(dllexport) void __stdcall Resize();
 
-extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio);
-extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio);
+extern "C" __declspec(dllexport) HRESULT Initialize(HWND pmainHWND);
+extern "C" __declspec(dllexport) HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio, int pBtnWidth, int pBtnHeight);
+extern "C" __declspec(dllexport) HRESULT InitializeWrite();
+extern "C" __declspec(dllexport) void InitializeSurfaceDial(HWND pmainHWND);
 extern "C" __declspec(dllexport) HRESULT InitializeLayerRenderPreview();
 extern "C" __declspec(dllexport) HRESULT InitializeLayersButtons(HWND* buttonsHwnd);
-extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND hWnd);
+extern "C" __declspec(dllexport) HRESULT InitializeLayers(HWND pLayerWindow, HWND pLayers, HWND pControlButtons);
 extern "C" __declspec(dllexport) HRESULT InitializeTools(HWND hWnd);
 extern "C" __declspec(dllexport) HRESULT InitializeReplay(HWND hWnd);
 

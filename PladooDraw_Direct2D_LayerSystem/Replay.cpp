@@ -94,8 +94,8 @@ void TCreateReplayFrame(int FrameIndex) {
     replayDeviceContext->BeginDraw(); 
     replayDeviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
 
-    float canvasW = 512.0f;
-    float canvasH = 512.0f;
+    float canvasW = width;
+    float canvasH = height;
     float thumbW = size.width;
     float thumbH = size.height;
 

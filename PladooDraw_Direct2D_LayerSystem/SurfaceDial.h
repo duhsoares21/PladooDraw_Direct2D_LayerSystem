@@ -3,7 +3,7 @@
 
 #include <windows.h>
 
-void InitializeSurfaceDial(HWND docHWND);
+extern void TInitializeSurfaceDial(HWND docHWND);
 
 void CleanupSurfaceDial();
 

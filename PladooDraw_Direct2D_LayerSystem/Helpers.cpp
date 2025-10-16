@@ -95,7 +95,7 @@ void HSetReplayMode(int pReplayMode) {
     }
 
     CleanupSurfaceDial();
-    InitializeSurfaceDial(mainHWND);
+    TInitializeSurfaceDial(mainHWND);
 }
 
 void HCreateHighlightFrame() {
@@ -325,8 +325,9 @@ void HOnScrollWheelLayers(int wParam) {
             return a.layerOrder > b.layerOrder;
         });
 
+    int itemWidth = btnWidth;
     int itemHeight = btnHeight;
-    int contentHeight = (int)result.size() * itemHeight;
+    int contentHeight = ((int)result.size() - 1) * itemHeight;
 
     RECT parentRc;
     GetClientRect(layersHWND, &parentRc);
@@ -350,7 +351,7 @@ void HOnScrollWheelLayers(int wParam) {
         int y = (int)(i * itemHeight) - g_scrollOffset; // posição base - offset
 
         MoveWindow(LayerButtons[currentLayerIndex].value().button,
-            x, y, itemHeight, itemHeight, TRUE);
+            x, y, itemWidth, itemHeight, TRUE);
     }
 }
 
@@ -360,6 +361,7 @@ void HOnScrollWheelReplay(int wParam) {
     int delta = btnWidth;
    
     int itemWidth = btnWidth;
+    int itemHeight = btnHeight;
     int contentWidth = (int)ReplayFrameButtons.size() * itemWidth;
 
     RECT parentRc;
@@ -380,7 +382,7 @@ void HOnScrollWheelReplay(int wParam) {
         int y = 10;
 
         MoveWindow(ReplayFrameButtons[currentFrameIndex].value().frame,
-            x, y, itemWidth, itemWidth, TRUE);
+            x, y, itemWidth, itemHeight, TRUE);
     }
 
     TReplayRender();

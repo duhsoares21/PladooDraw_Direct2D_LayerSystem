@@ -2,6 +2,12 @@
 #include "Base.h"
 #include "Structs.h"
 
+#define BTN_WIDTH_DEFAULT 120
+#define BTN_WIDTH_WIDE_DEFAULT 190
+
+#define BTN_HEIGHT_DEFAULT 120
+#define BTN_HEIGHT_WIDE_DEFAULT 120
+
 // Arrays constantes
 extern const int DX[4];
 extern const int DY[4];
@@ -11,7 +17,9 @@ extern std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
 extern HWND mainHWND;
 extern HWND docHWND;
+extern HWND layerWindowHWND;
 extern HWND layersHWND;
+extern HWND layersControlButtonsGroupHWND;
 extern HWND toolsHWND;
 extern HWND replayHWND;
 extern HWND highlightFrame;

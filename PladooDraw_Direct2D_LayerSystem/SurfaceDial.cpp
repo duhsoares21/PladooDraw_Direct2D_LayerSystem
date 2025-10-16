@@ -48,7 +48,7 @@ static void EnsureDispatcherQueue()
     g_dispatcherController = controllerNative.as<DispatcherQueueController>();
 }
 
-void InitializeSurfaceDial(HWND hwnd)  
+void TInitializeSurfaceDial(HWND hwnd)  
 {  
    winrt::init_apartment(winrt::apartment_type::single_threaded);  
     

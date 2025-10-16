@@ -8,7 +8,9 @@ std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
 HWND mainHWND = NULL;
 HWND docHWND = NULL;
+HWND layerWindowHWND = NULL;
 HWND layersHWND = NULL;
+HWND layersControlButtonsGroupHWND = NULL;
 HWND toolsHWND = NULL;
 HWND replayHWND = NULL;
 HWND* hLayerButtons = NULL;

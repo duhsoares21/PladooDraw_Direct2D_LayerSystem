@@ -98,7 +98,7 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
 void TReorderLayers(bool isAddingLayer) {
     int counter = isAddingLayer ? 0 : -1;
     for (auto it = LayerButtons.rbegin(); it != LayerButtons.rend(); ++it) {
-        if (it->has_value()) {
+        if (it->has_value() && IsWindowVisible(it->value().button)) {
             counter++;
             MoveWindow(it->value().button, 0, counter * btnHeight, btnWidth, btnHeight, true);
         }
@@ -437,7 +437,7 @@ void TRenderLayers() {
     // Check swap chain
     if (!g_pSwapChain) {
         OutputDebugStringW(L"TRenderLayers: g_pSwapChain is nullptr. Attempting to reinitialize.\n");
-        HRESULT hr = TInitializeDocument(docHWND, -1, -1, -1);
+        HRESULT hr = TInitializeDocument(docHWND, -1, -1, -1, btnWidth, btnHeight);
         if (FAILED(hr)) {
             OutputDebugStringW((L"TRenderLayers: Failed to reinitialize document, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
             return;
@@ -548,12 +548,12 @@ void TSelectedLayerHighlight(int currentLayer) {
 
         if (isActive) {
             // Active layer: use a highlight color and a thicker border
-            borderColor = D2D1::ColorF(D2D1::ColorF::DarkRed, 1.0f); // Highlight color
+            borderColor = D2D1::ColorF(D2D1::ColorF(0.05f,0.63f,1.0f,0.3f)); // Highlight color
             borderWidth = 3.0f;
         }
         else {
             // Inactive layer: use a subtle color and a standard border
-            borderColor = D2D1::ColorF(D2D1::ColorF::LightGray, 0.8f); // Default border color
+            borderColor = D2D1::ColorF(D2D1::ColorF::LightGray, 0.0f); // Default border color
             borderWidth = 1.0f;
         }
 
@@ -569,7 +569,7 @@ void TSelectedLayerHighlight(int currentLayer) {
 
         // 2. Draw the border rectangle using the configured pBrush
         if (pBrush) { // Safety check
-            deviceContext->DrawRectangle(drawRect, pBrush.Get(), borderWidth);
+            deviceContext->FillRectangle(drawRect, pBrush.Get());
         }
 
         // --- End Drawing and Present ---
@@ -581,31 +581,5 @@ void TSelectedLayerHighlight(int currentLayer) {
 }
 
 void TDrawLayerPreview(int currentLayer) {
-
-    RECT rc;
-
-    if (LayerButtons.size() == 0) {
-        return;
-    }
-
-    if (!layers[currentLayer].has_value()) return;
-    if (!LayerButtons[currentLayer].has_value()) return;
-
-    HWND layerbutton = LayerButtons[currentLayer].value().button;
-
-    GetClientRect(layerbutton, &rc);
-
-    LayerButtons[currentLayer].value().deviceContext->BeginDraw();
-    LayerButtons[currentLayer].value().deviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
-    LayerButtons[currentLayer].value().deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
-
-    // If you want to draw the actual layer content, you'd do something like:
-    LayerButtons[currentLayer].value().deviceContext->DrawBitmap(layers[currentLayer].value().pBitmap.Get(), D2D1::RectF(rc.left, rc.top, rc.right, rc.bottom));
-    
-    HRESULT hr = LayerButtons[currentLayer].value().deviceContext->EndDraw();
-
-    // Present the swap chain for this layer window
-    LayerButtons[currentLayer].value().swapChain->Present(1, 0);
-
     TSelectedLayerHighlight(currentLayer);
 }

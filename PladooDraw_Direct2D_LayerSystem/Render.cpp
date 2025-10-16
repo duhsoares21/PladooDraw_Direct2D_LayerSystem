@@ -8,9 +8,16 @@
 #include "Helpers.h"
 #include "Tools.h"
 
-HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio) {
+HRESULT TInitialize(HWND pmainHWND) {
     mainHWND = pmainHWND;
-    docHWND = pdocHWND;
+
+    HRESULT hr = RoInitialize(RO_INIT_SINGLETHREADED);
+
+    if (FAILED(hr)) {
+        // Handle the error, for example, by logging or returning FALSE  
+        MessageBox(NULL, L"Failed to initialize Windows Runtime", L"Error", MB_OK | MB_ICONERROR);
+        return FALSE;
+    }
     
     D2D1_FACTORY_OPTIONS options = { D2D1_DEBUG_LEVEL_INFORMATION };
     HRESULT factoryResult = D2D1CreateFactory(
@@ -21,19 +28,16 @@ HRESULT TInitialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int 
     );
 
     if (FAILED(factoryResult)) {
-        MessageBox(pdocHWND, L"Erro ao criar Factory", L"Erro", MB_OK);
+        MessageBox(pmainHWND, L"Erro ao criar Factory", L"Erro", MB_OK);
             
         return factoryResult;
     }
 
-    TInitializeDocument(pdocHWND, pWidth, pHeight, pPixelSizeRatio);
-    TInitializeWrite();
-    InitializeSurfaceDial(pmainHWND);
-
     return S_OK;
 }
 
-HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio) {
+HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio, int pBtnWidth, int pBtnHeight) {
+    docHWND = hWnd;
 
     RECT rc;
     GetClientRect(hWnd, &rc);
@@ -45,15 +49,9 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
         width = pWidth;
         height = pHeight;
     }
-
-    if (width > 512) {
-        btnWidth = 160;
-        btnHeight = 90;
-    }
-    else {
-        btnWidth = 90;
-        btnHeight = 90;
-    }
+    
+    btnWidth = pBtnWidth;
+    btnHeight = pBtnHeight;
 
     GetClientRect(mainHWND, &rc);
 
@@ -188,8 +186,11 @@ HRESULT TInitializeLayerRenderPreview() {
     return S_OK;
 }
 
-HRESULT TInitializeLayers(HWND hWnd) {
-    layersHWND = hWnd;
+HRESULT TInitializeLayers(HWND pLayerWindow, HWND pLayers, HWND pControlButtons) {
+
+    layerWindowHWND = pLayerWindow;
+    layersHWND = pLayers;
+    layersControlButtonsGroupHWND = pControlButtons;
 
     return S_OK;
 }
@@ -208,10 +209,10 @@ HRESULT TInitializeReplay(HWND hWnd) {
 
 HRESULT TInitializeLayersButtons(HWND* buttonsHwnd) {
 
-    buttonUp = buttonsHwnd[10];
-    buttonDown = buttonsHwnd[11];
-    buttonPlus = buttonsHwnd[12];
-    buttonMinus = buttonsHwnd[13];
+    buttonUp = buttonsHwnd[0];
+    buttonDown = buttonsHwnd[1];
+    buttonPlus = buttonsHwnd[2];
+    buttonMinus = buttonsHwnd[3];
 
     return S_OK;
 }

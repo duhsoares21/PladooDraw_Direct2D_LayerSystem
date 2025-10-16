@@ -10,22 +10,15 @@
 #include "Tools.h"
 #include "ToolsAux.h"
 #include "Transforms.h"
+#include "SurfaceDial.h"
 #include "SvgExporter.h"
 #include "Replay.h"
 
 /* MAIN */
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {  
-    HRESULT hr; // Variable to store the return value of RoInitialize  
-
     switch (fdwReason) {  
         case DLL_PROCESS_ATTACH:  
-            hr = RoInitialize(RO_INIT_SINGLETHREADED);  
-            if (FAILED(hr)) {  
-                // Handle the error, for example, by logging or returning FALSE  
-                MessageBox(NULL, L"Failed to initialize Windows Runtime", L"Error", MB_OK | MB_ICONERROR);  
-                return FALSE;  
-            }  
             break;  
 
         case DLL_PROCESS_DETACH:  
@@ -80,20 +73,28 @@ void __stdcall Resize() {
     pRenderTarget->SetDpi(dpiX, dpiY);
 }
 
-HRESULT Initialize(HWND pmainHWND, HWND pdocHWND, int pWidth, int pHeight, int pPixelSizeRatio) {
-    return TInitialize(pmainHWND, pdocHWND, pWidth, pHeight, pPixelSizeRatio);
+HRESULT Initialize(HWND pmainHWND) {
+    return TInitialize(pmainHWND);
 }
 
-HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio) {
-    return TInitializeDocument(hWnd, pWidth, pHeight, pPixelSizeRatio);
+HRESULT InitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio, int pBtnWidth, int pBtnHeight) {
+    return TInitializeDocument(hWnd, pWidth, pHeight, pPixelSizeRatio, pBtnWidth, pBtnHeight);
+}
+
+HRESULT InitializeWrite() {
+    return TInitializeWrite();
+}
+
+void InitializeSurfaceDial(HWND pmainHWND) {
+    TInitializeSurfaceDial(pmainHWND);
 }
 
 HRESULT InitializeLayerRenderPreview() {
     return TInitializeLayerRenderPreview();
 }
 
-HRESULT InitializeLayers(HWND hWnd) {
-    return TInitializeLayers(hWnd);
+HRESULT InitializeLayers(HWND pLayerWindow, HWND pLayers, HWND pControlButtons) {
+    return TInitializeLayers(pLayerWindow, pLayers, pControlButtons);
 }
 
 HRESULT InitializeTools(HWND hWnd) {
@@ -143,6 +144,8 @@ void __stdcall LoadProjectDll(LPCSTR apath) {
 }
 
 void __stdcall LoadProjectDllW(LPWSTR wpath) {
+
+    std::wcout << wpath;
 
     std::wstring widePath;
     if (wpath) {

@@ -158,28 +158,6 @@ void LoadBinaryProject(const std::wstring& filename) {
         pixelSizeRatio = -1;
     }
 
-    if (width > 512) {
-        btnWidth = 160;
-        btnHeight = 90;
-    }
-    else {
-        btnWidth = 90;
-        btnHeight = 90;
-    }
-
-    RECT rcMain;
-    GetClientRect(mainHWND, &rcMain);
-
-    RECT rc;
-    GetClientRect(layersHWND, &rc);
-
-    SetWindowPos(layersHWND, HWND_BOTTOM, (rcMain.right - rcMain.left) - btnWidth, rc.top, btnWidth, rc.bottom, 0);
-    
-    SetWindowPos(buttonUp, HWND_TOP, 0, rc.bottom - btnHeight, btnWidth / 2, btnHeight / 3, 0);
-    SetWindowPos(buttonDown, HWND_TOP, btnWidth / 2, rc.bottom - btnHeight, btnWidth / 2, btnHeight / 3, 0);
-    SetWindowPos(buttonPlus, HWND_TOP, 0, rc.bottom - (btnHeight / 1.5), btnWidth, btnHeight / 3, 0);
-    SetWindowPos(buttonMinus, HWND_TOP, 0, rc.bottom - (btnHeight / 3), btnWidth, btnHeight / 3, 0);
-
     int layerCount = 0;
     in.read((char*)&layerCount, sizeof(layerCount));
 
@@ -279,9 +257,41 @@ void LoadBinaryProject(const std::wstring& filename) {
 
     in.close();
 
-    HRESULT hr = Initialize(mainHWND, docHWND, width, height, pixelSizeRatio);
+    if (width > 512) {
+        btnWidth = BTN_WIDTH_WIDE_DEFAULT;
+        btnHeight = BTN_HEIGHT_WIDE_DEFAULT;
+    }
+    else {
+        btnWidth = BTN_WIDTH_DEFAULT;
+        btnHeight = BTN_HEIGHT_DEFAULT;
+    }
+
+    HRESULT hr = Initialize(mainHWND);
 
     if (SUCCEEDED(hr)) {
+
+        InitializeDocument(docHWND, width, height, pixelSizeRatio, btnWidth, btnHeight);
+
+        RECT rcMain;
+        GetClientRect(mainHWND, &rcMain);
+
+        SetWindowPos(layerWindowHWND, HWND_TOP, (rcMain.right - rcMain.left) - btnWidth, rcMain.bottom - rcMain.top, btnWidth, rcMain.bottom - rcMain.top, SWP_NOMOVE);
+
+        RECT rcLayerWindow;
+        GetClientRect(layerWindowHWND, &rcLayerWindow);
+
+        SetWindowPos(layersHWND, layerWindowHWND, 0, 0, (rcLayerWindow.right - rcLayerWindow.left), (rcLayerWindow.bottom - rcLayerWindow.top) - btnHeight, SWP_NOMOVE);
+
+        RECT rcLayers;
+        GetClientRect(layersHWND, &rcLayers);
+
+        SetWindowPos(layersControlButtonsGroupHWND, layerWindowHWND, 0, (rcLayerWindow.bottom - rcLayerWindow.top), (rcLayerWindow.right - rcLayerWindow.left), btnHeight, 0);
+
+        SetWindowPos(buttonUp, HWND_TOP, 0, 0, (rcLayerWindow.right - rcLayerWindow.left) / 2, 30, 0);
+        SetWindowPos(buttonDown, HWND_TOP, (rcLayerWindow.right - rcLayerWindow.left) / 2, 0, (rcLayerWindow.right - rcLayerWindow.left) / 2, 30, 0);
+        SetWindowPos(buttonPlus, HWND_TOP, 0, 30, (rcLayerWindow.right - rcLayerWindow.left), 30, 0);
+        SetWindowPos(buttonMinus, HWND_TOP, 0, 60, (rcLayerWindow.right - rcLayerWindow.left), 30, SWP_NOMOVE);
+
         for (size_t i = 0; i < layerCount; i++) {
             if (layers[i].has_value()) {
                 layers[i].value().pBitmap = CreateEmptyLayerBitmap();
