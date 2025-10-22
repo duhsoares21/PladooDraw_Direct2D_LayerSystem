@@ -6,6 +6,7 @@
 #include "Main.h"
 #include "Tools.h"
 #include "SaveLoad.h"
+#include "Animation.h"
 
 void SaveBinaryProject(const std::wstring& filename) {
     std::ofstream out(filename, std::ios::binary);
@@ -15,9 +16,10 @@ void SaveBinaryProject(const std::wstring& filename) {
     }
 
     int magic = 0x30444450; // 'PDD0'
-    int version = 1;
+    int version = 2;
     out.write((char*)&magic, sizeof(magic));
     out.write((char*)&version, sizeof(version));
+    out.write((char*)&isAnimationMode, sizeof(isAnimationMode));
     out.write((char*)&width, sizeof(width));
     out.write((char*)&height, sizeof(height));
     out.write((char*)&pixelSizeRatio, sizeof(pixelSizeRatio));
@@ -45,6 +47,7 @@ void SaveBinaryProject(const std::wstring& filename) {
         out.write((char*)&hasValue, sizeof(hasValue));
         if (hasValue) {
             out.write((char*)&l->LayerID, sizeof(l->LayerID));
+            out.write((char*)&l->FrameIndex, sizeof(l->FrameIndex));
             out.write((char*)&l->isActive, sizeof(l->isActive));
         }
     }
@@ -69,6 +72,7 @@ void SaveBinaryProject(const std::wstring& filename) {
     for (const auto& a : Actions) {
         out.write((char*)&a.Tool, sizeof(a.Tool));
         out.write((char*)&a.Layer, sizeof(a.Layer));
+        out.write((char*)&a.FrameIndex, sizeof(a.FrameIndex));
         out.write((char*)&a.Position, sizeof(a.Position));
         if (a.Tool == TWrite) {
             uint32_t textLen = static_cast<uint32_t>(a.Text.size());
@@ -140,16 +144,25 @@ void LoadBinaryProject(const std::wstring& filename) {
         }
     }
 
-    LayerButtons.clear();
+    for (auto frameButton : TimelineFrameButtons) {
+        if (frameButton.has_value()) {
+            DestroyWindow(frameButton.value().frame);
+        }
+    }
+
+    TimelineFrameButtons.clear();
 
     HCleanup();
 
     std::ifstream in(filename, std::ios::binary);
 
-    int magic = 0, version = 0;
+    int magic = 0, version = 0, _isAnimationMode = 0;
+
     in.read((char*)&magic, sizeof(magic));
     in.read((char*)&version, sizeof(version));
-
+    if (version == 2) {
+        in.read((char*)&isAnimationMode, sizeof(isAnimationMode));
+    }
     in.read((char*)&width, sizeof(width));
     in.read((char*)&height, sizeof(height));
 
@@ -162,19 +175,23 @@ void LoadBinaryProject(const std::wstring& filename) {
     in.read((char*)&layerCount, sizeof(layerCount));
 
     layers.clear();
+    
+    vector<optional<Layer>> tempLayers;
     for (int i = 0; i < layerCount; ++i) {
         bool hasValue = false;
         in.read((char*)&hasValue, sizeof(hasValue));
         if (hasValue) {
             Layer l = {};
             in.read((char*)&l.LayerID, sizeof(l.LayerID));
+            if (version == 2) {
+                in.read((char*)&l.FrameIndex, sizeof(l.FrameIndex));
+            }
             in.read((char*)&l.isActive, sizeof(l.isActive));
 
-            layers.push_back(l);
-
+            tempLayers.push_back(l);
         }
         else {
-            layers.push_back(std::nullopt);
+            tempLayers.push_back(nullopt);
         }
     }
 
@@ -198,7 +215,9 @@ void LoadBinaryProject(const std::wstring& filename) {
 
         in.read((char*)&a.Tool, sizeof(a.Tool));
         in.read((char*)&a.Layer, sizeof(a.Layer));
-
+        if (version == 2) {
+            in.read((char*)&a.FrameIndex, sizeof(a.FrameIndex));
+        }
         in.read((char*)&a.Position, sizeof(a.Position));
         if (a.Tool == TWrite) {
             uint32_t length = 0;
@@ -293,20 +312,55 @@ void LoadBinaryProject(const std::wstring& filename) {
         SetWindowPos(buttonMinus, HWND_TOP, 0, 60, (rcLayerWindow.right - rcLayerWindow.left), 30, SWP_NOMOVE);
 
         for (size_t i = 0; i < layerCount; i++) {
-            if (layers[i].has_value()) {
-                layers[i].value().pBitmap = CreateEmptyLayerBitmap();
-                if (layers[i].value().isActive){
-                    TAddLayerButton(layers[i].value().LayerID, true);
+            if (tempLayers[i].has_value()) {
+                tempLayers[i].value().pBitmap = CreateEmptyLayerBitmap();
+                if (tempLayers[i].value().isActive){
+                    if (tempLayers[i].value().FrameIndex == 0) {
+                        TAddLayerButton(tempLayers[i].value().LayerID, true);
+                    }
+                    TCreateAnimationFrame(tempLayers[i].value().LayerID, tempLayers[i].value().FrameIndex);
                 }
             }
         }
     }
 
-    InitializeLayerRenderPreview();
-    for (int i = 0; i < layerCount; ++i) {
-        if (layers[i].has_value()) {
-            TUpdateLayers(layers[i].value().LayerID);
+    for (size_t i = 0; i < tempLayers.size(); ++i) {
+        if (tempLayers[i].has_value()) {
+            Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap = CreateEmptyLayerBitmap();
+
+            pRenderTarget->SetTarget(pBitmap.Get());
+            pRenderTarget->BeginDraw();
+            pRenderTarget->Clear(D2D1::ColorF(1, 1, 1, 0));
+            pRenderTarget->EndDraw();
+
+            Layer layer = { tempLayers[i].value().LayerID, tempLayers[i].value().FrameIndex, true, pBitmap};
+            layers.emplace_back(layer);
+        }
+        else
+        {
+            layers.emplace_back(nullopt);
         }
     }
+
+    InitializeLayerRenderPreview();
+
+    for (int i = 0; i < layerCount; ++i) {
+        if (layers[i].has_value()) {
+            TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
+        }
+    }
+    
     TRenderLayers();
+
+    if (isAnimationMode == 1) {
+        HWND hCheck = GetDlgItem(mainHWND, 110);
+        LRESULT state = SendMessage(hCheck, BM_GETCHECK, 0, 0);
+        if (state == BST_UNCHECKED) {
+            SendMessage(hCheck, BM_CLICK, 0, 0);
+        }
+    
+        TUpdateAnimation();
+        TRenderAnimation();
+    }
+
 }

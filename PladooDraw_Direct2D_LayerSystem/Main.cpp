@@ -13,6 +13,7 @@
 #include "SurfaceDial.h"
 #include "SvgExporter.h"
 #include "Replay.h"
+#include "Animation.h"
 
 /* MAIN */
 
@@ -180,20 +181,22 @@ void handleMouseUp() {
     THandleMouseUp();
 }
 
-void EditFromThisPoint() {
-    TEditFromThisPoint();
-}
-
-void SetReplayMode(int pReplayMode) {
-    HSetReplayMode(pReplayMode);
-}
-
 void Undo() {
     TUndo();
 }
 
 void Redo() {
     TRedo();
+}
+
+/*REPLAY*/
+
+void EditFromThisPoint() {
+    TEditFromThisPoint();
+}
+
+void SetReplayMode(int pReplayMode) {
+    HSetReplayMode(pReplayMode);
 }
 
 void ReplayBackwards() {
@@ -204,6 +207,44 @@ void ReplayForward() {
     TReplayForward();
 }
 
+/* ANINMATION */
+
+void SetAnimationMode(int pAnimationMode) {
+    if (TimelineFrameButtons.size() == 0) {
+        TCreateAnimationFrame(0, 0);
+    }
+    HSetAnimationMode(pAnimationMode);
+}
+
+void CreateAnimationFrame() {
+    std::vector<std::optional<TimelineFrameButton>> validTimelineFrames;
+    std::copy_if(
+        TimelineFrameButtons.begin(),
+        TimelineFrameButtons.end(),
+        std::back_inserter(validTimelineFrames),
+        [](const std::optional<TimelineFrameButton>& optLayer) {
+            return optLayer.has_value();
+        }
+    );
+    TUpdateAnimation();
+    TUpdateLayers(layerIndex, CurrentFrameIndex);
+    TCreateAnimationFrame(layerIndex, validTimelineFrames.size());
+    AnimationForward();
+}
+
+void RemoveAnimationFrame() {
+    TRemoveAnimationFrame();
+    TUpdateAnimation();
+    TUpdateLayers(layerIndex, CurrentFrameIndex);
+}
+
+void AnimationForward() {
+    TAnimationForward();
+}
+
+void AnimationBackward() {
+    TAnimationBackward();
+}
 /* TRANSFORM */
 
 float __stdcall GetZoomFactor() {
@@ -250,8 +291,8 @@ void DecreaseBrushSize(float sizeRatio) {
 
 /* LAYERS */
 
-void AddLayer(bool fromFile = false, int currentLayer = -1) {
-    TAddLayer(fromFile, currentLayer);
+void AddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame = -1) {
+    TAddLayer(fromFile, currentLayer, currentFrame);
 }
 
 int LayersCount() {
@@ -305,15 +346,27 @@ void ReorderLayerDown() {
 }
 
 void RenderActionToTarget(const ACTION& action) {
-    TRenderActionToTarget(action);
+    HRenderAction(action, pRenderTarget, COLOR_UNDEFINED);
 }
 
 void UpdateLayers(int layerIndexTarget = -1) {
-    TUpdateLayers(layerIndexTarget);
+    TUpdateLayers(layerIndexTarget, CurrentFrameIndex);
 }
 
 void RenderLayers() {
     TRenderLayers();
+}
+
+void RenderAnimation() {
+    TRenderAnimation();
+}
+
+void PlayAnimation() {
+    TPlayAnimation();
+}
+
+void PauseAnimation() {
+    TPauseAnimation();
 }
 
 void DrawLayerPreview(int currentLayer) {
@@ -424,5 +477,5 @@ void OnScrollWheelLayers(int wParam) {
 }
 
 void OnScrollWheelReplay(int wParam) {
-    HOnScrollWheelReplay(wParam);
+    HOnScrollWheelTimeline(wParam);
 }

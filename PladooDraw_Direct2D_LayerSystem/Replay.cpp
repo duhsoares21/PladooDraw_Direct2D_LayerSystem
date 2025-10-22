@@ -6,102 +6,32 @@
 
 void TCreateReplayFrame(int FrameIndex) {
 
-    RECT rcParent;
-    GetClientRect(replayHWND, &rcParent);
+    HWND replayFrame = HCreateTimelineFrameButton(FrameIndex);
 
-    int replayParentWidth = rcParent.right - rcParent.left;
+    RenderData renderData = HCreateRenderDataHWND(replayFrame);  
 
-    HINSTANCE hReplayInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(replayHWND, GWLP_HINSTANCE));
-
-    DWORD style = WS_CHILD | WS_VISIBLE | BS_BITMAP;
-
-    HWND replayFrame = CreateWindowEx(
-        0,
-        L"Button",
-        L"",
-        style,
-        (replayParentWidth / 2) - (btnWidth / 2) + (btnWidth * FrameIndex),
-        10,
-        btnWidth,
-        btnHeight,
-        replayHWND,
-        (HMENU)(intptr_t)FrameIndex,
-        hReplayInstance,
-        NULL
-    );
-
-    RECT rc;
-    GetClientRect(replayFrame, &rc);
-    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> replayDeviceContext;
-    HRESULT hr = g_pD2DDevice->CreateDeviceContext(
-        D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-        replayDeviceContext.GetAddressOf()
-    );
-
-    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
-    hr = g_pD3DDevice.As(&dxgiDevice);
-
-    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    hr = dxgiDevice->GetAdapter(&adapter);
-
-    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
-    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
-    swapDesc.Width = size.width;
-    swapDesc.Height = size.height;
-    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.BufferCount = 2;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> replaySwapChain;
-    hr = dxgiFactory->CreateSwapChainForHwnd(
-        g_pD3DDevice.Get(),
-        replayFrame,
-        &swapDesc,
-        nullptr, nullptr,
-        &replaySwapChain
-    );
-
-    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
-    replaySwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
-    D2D1_BITMAP_PROPERTIES1 bitmapProperties = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-    );
-
-    replayDeviceContext->CreateBitmapFromDxgiSurface(
-        backBuffer.Get(),
-        &bitmapProperties,
-        &targetBitmap
-    );
-
-    replayDeviceContext->SetTarget(targetBitmap.Get());
+    renderData.deviceContext->SetTarget(renderData.bitmap.Get());
     
-    ReplayFrameButtons.push_back(ReplayFrameButton{
+    TimelineFrameButtons.push_back(TimelineFrameButton{
+        layerIndex,
         FrameIndex,
         replayFrame,
-        replayDeviceContext,
-        replaySwapChain
+        renderData.deviceContext,
+        renderData.swapChain,
+        renderData.bitmap
     });
 
-    replayDeviceContext->BeginDraw(); 
-    replayDeviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+    renderData.deviceContext->BeginDraw();
+    renderData.deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
 
     float canvasW = width;
     float canvasH = height;
-    float thumbW = size.width;
-    float thumbH = size.height;
+    float thumbW = renderData.size.width;
+    float thumbH = renderData.size.height;
 
     float scale = min(thumbW / canvasW, thumbH / canvasH);
 
-    replayDeviceContext->SetTransform(
+    renderData.deviceContext->SetTransform(
         D2D1::Matrix3x2F::Scale(scale, scale)
     );
 
@@ -115,173 +45,84 @@ void TCreateReplayFrame(int FrameIndex) {
     int total = static_cast<int>(FilteredRedoActions.size());
 
     for (int i = 0; i < FrameIndex && i < total; i++) {
-        int idx = total - 1 - i; // lê de trás pra frente
-        TRenderReplayAction(FilteredRedoActions[idx], replayDeviceContext);
+        int idx = total - 1 - i;
+        HRenderAction(FilteredRedoActions[idx], renderData.deviceContext, COLOR_UNDEFINED);
     }
         
-    replayDeviceContext->EndDraw();
+    renderData.deviceContext->EndDraw();
 
-    replaySwapChain->Present(1, 0);
+    renderData.swapChain->Present(1, 0);
 }
 
-void TRenderReplayAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceContext> replayDeviceContext) {
-
-    D2D1_COLOR_F color = HGetRGBColor(action.Color);
-    if (action.Tool == TPaintBucket) {
-        color = HGetRGBColor(action.FillColor);
-    }
-
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> replayBrush;
-
-    if (replayBrush == nullptr) {
-        replayDeviceContext->CreateSolidColorBrush(color, &replayBrush);
-    }
-    else {
-        replayBrush->SetColor(color);
-    }
-
-    if (replayDeviceContext == pRenderTarget) {
-        if (pBrush == nullptr) {
-            pRenderTarget->CreateSolidColorBrush(color, &replayBrush);
+void TReplayClearLayers() {
+    for (const auto& layer : layerBitmaps) {
+        if (layer.pBitmap) {
+            pRenderTarget->BeginDraw();
+            pRenderTarget->SetTarget(layer.pBitmap.Get());
+            pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
+            pRenderTarget->EndDraw();
         }
-        else {
-            pBrush->SetColor(color);
-        }
-
-        replayBrush = pBrush;
     }
-
-    switch (action.Tool) {
-    case TEraser:
-        replayDeviceContext->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        replayDeviceContext->Clear(D2D1::ColorF(0, 0, 0, 0));
-        replayDeviceContext->PopAxisAlignedClip();
-        break;
-
-    case TRectangle: {
-        replayDeviceContext->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        replayDeviceContext->FillRectangle(action.Position, replayBrush.Get());
-        replayDeviceContext->PopAxisAlignedClip();
-        break;
-    }
-
-    case TEllipse: {
-        replayDeviceContext->FillEllipse(action.Ellipse, replayBrush.Get());
-        break;
-    }
-
-    case TLine: {
-        replayDeviceContext->DrawLine(action.Line.startPoint, action.Line.endPoint, replayBrush.Get(), action.BrushSize, nullptr);
-        break;
-    }
-
-    case TBrush: {
-        for (const auto& vertex : action.FreeForm.vertices) {
-            if (action.isPixelMode) {
-                int snappedLeft = static_cast<int>(vertex.x / pixelSizeRatio) * pixelSizeRatio;
-                int snappedTop = static_cast<int>(vertex.y / pixelSizeRatio) * pixelSizeRatio;
-
-                D2D1_RECT_F pixel = D2D1::RectF(
-                    static_cast<float>(snappedLeft),
-                    static_cast<float>(snappedTop),
-                    static_cast<float>(snappedLeft + pixelSizeRatio),
-                    static_cast<float>(snappedTop + pixelSizeRatio)
-                );
-
-                replayDeviceContext->FillRectangle(pixel, replayBrush.Get());
-            }
-            else {
-
-                float scaledLeft = static_cast<float>(vertex.x) / zoomFactor;
-                float scaledTop = static_cast<float>(vertex.y) / zoomFactor;
-                float scaledBrushSize = static_cast<float>(currentBrushSize) / zoomFactor;
-                float scaledPixelSizeRatio = static_cast<float>(pixelSizeRatio) / zoomFactor;
-
-                D2D1_RECT_F rect = D2D1::RectF(
-                    scaledLeft - scaledBrushSize * 0.5f,
-                    scaledTop - scaledBrushSize * 0.5f,
-                    scaledLeft + scaledBrushSize * 0.5f,
-                    scaledTop + scaledBrushSize * 0.5f
-                );
-
-                replayDeviceContext->DrawRectangle(rect, replayBrush.Get());
-                replayDeviceContext->FillRectangle(rect, replayBrush.Get());
-            }
-        }
-        break;
-    }
-
-    case TPaintBucket: {
-        for (const auto& p : action.pixelsToFill) {
-            D2D1_RECT_F rect = D2D1::RectF((float)p.x * zoomFactor, (float)p.y * zoomFactor, (float)(p.x * zoomFactor + 1), (float)(p.y * zoomFactor + 1));
-            replayDeviceContext->FillRectangle(&rect, replayBrush.Get());
-        }
-        break;
-    }
-
-    case TWrite: {
-        if (action.Text.empty()) break;
-
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> localTextFormat;
-
-        pDWriteFactory->CreateTextFormat(
-            action.FontFamily.c_str(),
-            nullptr,
-            static_cast<DWRITE_FONT_WEIGHT>(action.FontWeight),
-            action.FontItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
-            static_cast<FLOAT>(action.FontSize) / 10.0f,   // if stored in tenths
-            L"en-us",
-            &localTextFormat
-        );
-
-        // Apply underline/strikethrough with a TextLayout if needed
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> textLayout;
-        pDWriteFactory->CreateTextLayout(
-            action.Text.c_str(),
-            static_cast<UINT32>(action.Text.size()),
-            localTextFormat.Get(),
-            action.Position.right - action.Position.left,
-            action.Position.bottom - action.Position.top,
-            &textLayout
-        );
-
-        if (action.FontUnderline)
-            textLayout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)action.Text.size() });
-        if (action.FontStrike)
-            textLayout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)action.Text.size() });
-
-        // Draw it
-        replayDeviceContext->DrawTextLayout(
-            D2D1::Point2F(action.Position.left, action.Position.top),
-            textLayout.Get(),
-            replayBrush.Get()
-        );
-        break;
-    }
-
-    default:
-        break;
-    }
-}
-
-int counter = 0;
-void TSetReplayHighlight() {
-
-    RECT rc;
-    GetClientRect(replayHWND, &rc);
-
-    int replayParentWidth = rc.right - rc.left;
-    
-    SetWindowPos(highlightFrame, HWND_BOTTOM, (replayParentWidth / 2) - (btnWidth / 2), 0, btnWidth, 10, 0);    
 }
 
 void TReplayRender() {
+
+    std::vector<LayerOrder> sortedLayers = layersOrder;
+    std::sort(sortedLayers.begin(), sortedLayers.end(),
+    [](const LayerOrder& a, const LayerOrder& b) {
+        return a.layerOrder < b.layerOrder; // higher order drawn first
+    });
+
     Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
     HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(IDXGISurface), &backBuffer);
     if (FAILED(hr)) {
         OutputDebugStringW((L"TRenderLayers: Failed to get backbuffer, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
         return;
+    }
+
+    for (auto it = layers.begin(); it != layers.end(); ++it) {
+
+        if (layerBitmaps.size() > 0) {
+            if (it->has_value()) {
+                const auto targetLayerID = it->value().LayerID;
+
+                auto layer = std::find_if(
+                    layerBitmaps.begin(),
+                    layerBitmaps.end(),
+                    [&](const Layer& l) {
+                        return l.LayerID == targetLayerID;
+                    }
+                );
+
+                if (layer != layerBitmaps.end()) {
+                    continue;
+                }
+            }
+        }
+
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
+        D2D1_BITMAP_PROPERTIES1 targetBitmapProps = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            dpiX, dpiY
+        );
+
+        D2D1_SIZE_U size = D2D1::SizeU(logicalWidth, logicalHeight);
+        HRESULT hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &targetBitmapProps, &targetBitmap);
+
+        if (SUCCEEDED(hr)) {
+            pRenderTarget->BeginDraw();
+            pRenderTarget->SetTarget(targetBitmap.Get());
+            pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
+            pRenderTarget->EndDraw();
+
+            layerBitmaps.push_back(Layer{
+                 it->value().LayerID,
+                 it->value().FrameIndex,
+                 it->value().isActive,
+                 targetBitmap
+            });
+        }
     }
 
     // Get DPI from pRenderTarget
@@ -295,12 +136,22 @@ void TReplayRender() {
         dpiX, dpiY
     );
 
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
     hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.ReleaseAndGetAddressOf());
+
     if (FAILED(hr)) {
         OutputDebugStringW((L"TRenderLayers: Failed to create bitmap from DXGI surface, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
         return;
     }
+
+    pRenderTarget->BeginDraw();
+
+    for (int j = 0; j <= Actions.size() && j < Actions.size(); j++) {
+        pRenderTarget->SetTarget(layerBitmaps[Actions[j].Layer].pBitmap.Get());
+        
+        (Actions[j], pRenderTarget, COLOR_UNDEFINED);
+    }
+
+    pRenderTarget->EndDraw();
 
     pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
 
@@ -308,13 +159,17 @@ void TReplayRender() {
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
     pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
 
-    for (int j = 0; j <= Actions.size() && j < Actions.size(); j++) {
-        TRenderReplayAction(Actions[j], pRenderTarget);
+    for (const auto& lo : sortedLayers) {
+        int index = lo.layerIndex;
+        if (index < 0 || index >= layers.size()) continue;
+        if (layerBitmaps[index].isActive) {
+            pRenderTarget->DrawBitmap(layerBitmaps[index].pBitmap.Get());
+        }
     }
-    
+
     pRenderTarget->EndDraw();
 
-    g_pSwapChain->Present(0, 0);
+    g_pSwapChain->Present(1, 0);
 }
 
 void TEditFromThisPoint() {
@@ -343,5 +198,29 @@ void TEditFromThisPoint() {
         LPCSTR title = "Editar a partir daqui";
 
         int clicked = MessageBoxA(mainHWND, message, title, MB_OK);
+    }
+}
+
+void TReplayBackwards() {
+    if (Actions.size() > 0) {
+        ACTION lastAction = Actions.back();
+        RedoActions.push_back(lastAction);
+        Actions.pop_back();
+
+        lastActiveReplayFrame--;
+        HOnScrollWheelTimeline(1);
+        TReplayRender();
+    }
+}
+
+void TReplayForward() {
+    if (RedoActions.size() > 0) {
+        ACTION action = RedoActions.back();
+        Actions.push_back(action);
+        RedoActions.pop_back();
+
+        lastActiveReplayFrame++;
+        HOnScrollWheelTimeline(-1);
+        TReplayRender();
     }
 }

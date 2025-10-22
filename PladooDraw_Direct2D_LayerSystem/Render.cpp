@@ -164,6 +164,8 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
         return E_FAIL;
     }
 
+    CreateGlobalRenderBitmap();
+
     return S_OK;
 }
 
@@ -202,7 +204,7 @@ HRESULT TInitializeTools(HWND hWnd) {
 }
 
 HRESULT TInitializeReplay(HWND hWnd) {
-    replayHWND = hWnd;
+    timelineHWND = hWnd;
 
     return S_OK;
 }

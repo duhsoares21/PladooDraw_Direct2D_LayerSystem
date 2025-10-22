@@ -1,6 +1,7 @@
 // SurfaceDial.cpp
 #include "pch.h"
 #include "Constants.h"
+#include "Replay.h"
 #include "SurfaceDial.h"
 #include "Tools.h"
 #include "Transforms.h"
@@ -16,6 +17,7 @@
 #include <winrt/base.h>                
 #include <iostream>
 #include "ToolsAux.h"
+#include "Animation.h"
 
 using namespace winrt;
 using namespace winrt::Windows::UI::Input;
@@ -69,7 +71,7 @@ void TInitializeSurfaceDial(HWND hwnd)
 
     g_menuItems.clear();
 
-    if (isReplayMode == 1) {
+    if (isReplayMode == 1 || isAnimationMode == 1) {
         auto Navigate = RadialControllerMenuItem::CreateFromKnownIcon(L"Navigate", RadialControllerMenuKnownIcon::NextPreviousTrack);
         g_menuItems.push_back(Navigate);
     }
@@ -87,8 +89,8 @@ void TInitializeSurfaceDial(HWND hwnd)
         menu.Items().Append(item);
     }
     
-    if (isReplayMode == 1) {
-        g_controller.RotationResolutionInDegrees(1.0);
+    if (isReplayMode == 1 || isAnimationMode == 1) {
+        g_controller.RotationResolutionInDegrees(25.0);
     }
     else {
         g_controller.RotationResolutionInDegrees(0.3);
@@ -142,6 +144,14 @@ void OnDialRotation(int menuIndex, int direction, float rotationDegrees) {
                 TReplayBackwards();
             }
         }
+        else if (isAnimationMode == 1) {
+            if (direction > 0) {
+                TAnimationForward();
+            }
+            else {
+                TAnimationBackward();
+            }
+        }
         else {
             if (direction > 0) {
                 TZoomIn(rotationDegrees * 0.1f);
@@ -165,15 +175,15 @@ int command = 0;
 void OnDialButtonClick(int menuIndex) {
     if (menuIndex == 0) {
         if (isReplayMode == 1) {
-            KillTimer(replayHWND, 1);
-            KillTimer(replayHWND, 2);
-            KillTimer(replayHWND, 3);
+            KillTimer(timelineHWND, 1);
+            KillTimer(timelineHWND, 2);
+            KillTimer(timelineHWND, 3);
 
             if (command == 2) {
                 command = 0;
             }
             else {
-                SetTimer(replayHWND, 2, 300, NULL);
+                SetTimer(timelineHWND, 2, 300, NULL);
                 command = 2;
             }
         }

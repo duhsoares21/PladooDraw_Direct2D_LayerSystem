@@ -3,8 +3,9 @@
 #include "Constants.h"
 #include "pch.h"
 
-extern void TRenderReplayAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceContext> replayDeviceContext);
+extern void TReplayClearLayers();
 extern void TCreateReplayFrame(int FrameIndex);
-extern void TSetReplayHighlight();
 extern void TReplayRender();
 extern void TEditFromThisPoint();
+extern void TReplayBackwards();
+extern void TReplayForward();

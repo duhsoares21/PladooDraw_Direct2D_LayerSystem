@@ -12,14 +12,22 @@
 
 void TEraserTool(int left, int top) {
 
-    if (!layers[layerIndex].has_value()) return;
+    auto it = std::find_if(
+        layers.begin(),
+        layers.end(),
+        [](const std::optional<Layer>& optLayer) {
+            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
+        }
+    );
+
+    if (!it->has_value()) return;
 
     if (prevLeft == -1 && prevTop == -1) {
         prevLeft = static_cast<float>(left) / zoomFactor;
         prevTop = static_cast<float>(top) / zoomFactor;
     }
 
-    pRenderTarget->SetTarget(layers[layerIndex].value(). pBitmap.Get());
+    pRenderTarget->SetTarget(it->value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -84,6 +92,7 @@ void TEraserTool(int left, int top) {
             ACTION action;
             action.Tool = 0;
             action.Layer = layerIndex;
+            action.FrameIndex = CurrentFrameIndex;
             action.Position = rect;
             action.BrushSize = scaledBrushSize;
             action.IsFilled = false;
@@ -98,7 +107,16 @@ void TEraserTool(int left, int top) {
 }
 
 void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixelSizeRatio) {
-    if (!layers[layerIndex].has_value()) return;
+
+    auto it = std::find_if(
+        layers.begin(),
+        layers.end(),
+        [](const std::optional<Layer>& optLayer) {
+            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
+        }
+    );
+
+    if (!it->has_value()) return;
 
     if (pBrush == nullptr) {
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
@@ -115,7 +133,7 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
     isDrawingBrush = true;
     isPixelMode = pixelMode;
 
-    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+    pRenderTarget->SetTarget(it->value().pBitmap.Get());
     pRenderTarget->BeginDraw();
 
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -222,7 +240,7 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
     }
 
     if (!isDrawingRectangle) {
-        TAddLayer(false, -1);
+        TAddLayer(false, -1, CurrentFrameIndex);
     }
 
     isDrawingRectangle = true;
@@ -267,7 +285,7 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
     }
 
     if (!isDrawingEllipse) {
-        TAddLayer(false, -1);
+        TAddLayer(false, -1, -1);
     }
 
     isDrawingEllipse = true;
@@ -321,7 +339,7 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
     }
 
     if (!isDrawingLine) {
-        TAddLayer(false, -1);
+        TAddLayer(false, -1, -1);
     }
 
     isDrawingLine = true;
@@ -361,7 +379,15 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 }
 
 void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
-    if (!layers[layerIndex].has_value()) return;
+    auto it = std::find_if(
+        layers.begin(),
+        layers.end(),
+        [](const std::optional<Layer>& optLayer) {
+            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
+        }
+    );
+
+    if (!it->has_value()) return;
 
     RECT rc;
     GetClientRect(docHWND, &rc);
@@ -434,7 +460,7 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
         );
     }
     
-    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+    pRenderTarget->SetTarget(it->value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
     for (auto& r : rects) {
@@ -446,6 +472,7 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     ACTION action;
     action.Tool = TPaintBucket;
     action.Layer = layerIndex;
+    action.FrameIndex = CurrentFrameIndex;
     action.FillColor = fillColor;
     action.mouseX = startX;
     action.mouseY = startY;
@@ -477,8 +504,6 @@ void TInitTextTool(float scaledLeft, float scaledTop, float width, float height)
 }
 
 void TWriteTool(int x, int y) {
-    if (!layers[layerIndex].has_value()) return;
-
     if (fontSize == 0) {
         SetFont();
         return;
@@ -510,14 +535,22 @@ void TWriteTool(int x, int y) {
 }
 
 void TWriteToolCommitText() {
-    if (!layers[layerIndex].has_value()) return;
+    auto it = std::find_if(
+        layers.begin(),
+        layers.end(),
+        [](const std::optional<Layer>& optLayer) {
+            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
+        }
+    );
+
+    if (!it->has_value()) return;
 
     wchar_t buffer[1024] = {};
     GetWindowText(hTextInput, buffer, 1024);
     std::wstring text(buffer);
 
     // Draw the text onto the layer bitmap
-    pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+    pRenderTarget->SetTarget(it->value().pBitmap.Get());
     pRenderTarget->BeginDraw();
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -579,6 +612,7 @@ void TWriteToolCommitText() {
     action.Tool = TWrite;
     action.Text = text;
     action.Layer = layerIndex;
+    action.FrameIndex = CurrentFrameIndex;
     action.Position = textArea;
     action.Color = fontColor;
 
@@ -593,8 +627,6 @@ void TWriteToolCommitText() {
 }
 
 void __stdcall TSelectTool(int xInitial, int yInitial) {
-    if (!layers[layerIndex].has_value()) return;
-
     if (selectedAction) return;
 
     // Scale coordinates
@@ -618,8 +650,6 @@ void __stdcall TSelectTool(int xInitial, int yInitial) {
 }
 
 void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
-    if (!layers[layerIndex].has_value()) return;
-
     if (layerIndex < 0 || selectedIndex < 0 || selectedIndex >= Actions.size()) {
         return;
     }
@@ -729,7 +759,7 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
         }
     }
 
-    TUpdateLayers(layerIndex);
+    TUpdateLayers(layerIndex, CurrentFrameIndex);
 }
 
 void __stdcall TUnSelectTool() {

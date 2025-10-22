@@ -19,6 +19,7 @@ struct LINE {
 struct ACTION {
     int Tool;
     int Layer;
+    int FrameIndex;
     int isLayerVisible;
     D2D1_RECT_F Position;
     EDGE FreeForm;
@@ -44,6 +45,7 @@ struct ACTION {
 
 struct Layer {
     int LayerID;
+    int FrameIndex;
     bool isActive;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
 };
@@ -83,16 +85,20 @@ namespace std {
 
 struct LayerButton {
     int LayerID;
+    int FrameIndex;
     HWND button;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
+    bool isActive;
 };
 
-struct ReplayFrameButton {
-    int FrameIndex;
+struct TimelineFrameButton {
+    int LayerIndex;
+    int FrameIndex; 
     HWND frame;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
+    ComPtr<ID2D1Bitmap1> bitmap;
 };
 
 struct PairHash {
@@ -102,4 +108,11 @@ struct PairHash {
         auto h2 = std::hash<T2>{}(p.second);
         return h1 ^ (h2 << 1);
     }
+};
+
+struct RenderData {
+    D2D1_SIZE_U size;
+    ComPtr<ID2D1DeviceContext> deviceContext;
+    ComPtr<IDXGISwapChain1> swapChain;
+    ComPtr<ID2D1Bitmap1> bitmap;
 };

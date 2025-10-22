@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <CL/cl.h>
 #include <cmath>
 #include <codecvt>
 #include <comdef.h>

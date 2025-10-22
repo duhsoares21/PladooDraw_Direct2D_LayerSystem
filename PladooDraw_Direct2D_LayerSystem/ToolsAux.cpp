@@ -5,6 +5,7 @@
 #include "Layers.h"
 #include "Tools.h"
 #include "Replay.h"
+#include "Animation.h"
 
 /* TOOLS AUX */
 
@@ -16,7 +17,15 @@ void THandleMouseUp() {
         ComPtr<ID2D1SolidColorBrush> brush;
         pRenderTarget->CreateSolidColorBrush(HGetRGBColor(currentColor), &brush);
 
-        pRenderTarget->SetTarget(layers[layerIndex].value().pBitmap.Get());
+        auto it = std::find_if(
+            layers.begin(),
+            layers.end(),
+            [](const std::optional<Layer>& optLayer) {
+                return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
+            }
+        );
+
+        pRenderTarget->SetTarget(it->value().pBitmap.Get());
         pRenderTarget->BeginDraw();
         pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
@@ -29,6 +38,7 @@ void THandleMouseUp() {
 
             action.Tool = TRectangle;
             action.Layer = layerIndex;
+            action.FrameIndex = CurrentFrameIndex;
             action.Position = rectangle;
             action.Color = currentColor;
 
@@ -41,6 +51,7 @@ void THandleMouseUp() {
 
             action.Tool = TEllipse;
             action.Layer = layerIndex;
+            action.FrameIndex = CurrentFrameIndex;
             action.Position = rectangle;
             action.Ellipse = ellipse;
             action.Color = currentColor;
@@ -54,6 +65,7 @@ void THandleMouseUp() {
 
             action.Tool = TLine;
             action.Layer = layerIndex;
+            action.FrameIndex = CurrentFrameIndex;
             action.Line = { startPoint, endPoint };
             action.Color = currentColor;
             action.BrushSize = currentBrushSize;
@@ -102,6 +114,7 @@ void THandleMouseUp() {
         ACTION action;
         action.Tool = TBrush;
         action.Layer = layerIndex;
+        action.FrameIndex = CurrentFrameIndex;
         action.Color = currentColor;
         action.BrushSize = currentBrushSize;
         action.FillColor = RGB(255, 255, 255);
@@ -127,80 +140,85 @@ void THandleMouseUp() {
     if (selectedAction) {
         TUnSelectTool();
     }
-
+    
+    TUpdateLayers(layerIndex, CurrentFrameIndex);
+    
+    TUpdateAnimation();
+    
     TRenderLayers();
 }
 
 void TUndo() {
-    if (Actions.size() > 0) {
-        ACTION lastAction = Actions.back();
 
-        if (lastAction.Tool == TLayer) {
+    auto it = std::find_if(
+        Actions.rbegin(),
+        Actions.rend(),
+        [](const ACTION& act) {
+            return act.Layer == layerIndex && act.FrameIndex == CurrentFrameIndex;
+        }
+    );
+
+    if (it != Actions.rend()) {
+        // converter iterator reverso para iterator normal para erase
+        auto normalIt = std::prev(it.base());
+
+        RedoActions.push_back(*normalIt);
+        Actions.erase(normalIt);
+
+        // TLayer check
+        ACTION& lastAction = RedoActions.back();
+        if (lastAction.Tool == TLayer && !isAnimationMode) {
             if (layers[lastAction.Layer].has_value()) {
                 lastAction.isLayerVisible = 0;
                 layers[lastAction.Layer].value().isActive = false;
                 ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_HIDE);
             }
         }
+    }
 
-        RedoActions.push_back(lastAction);
-        Actions.pop_back();
+    for (size_t i = 0; i < layers.size(); i++)
+    {
+        if (!layers[i].has_value()) continue;
+        TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
+    }
 
-        for (size_t i = 0; i < layers.size(); i++)
-        {
-            if (!layers[i].has_value()) continue;
-            TUpdateLayers(layers[i].value().LayerID);
-        }
-
-        TRenderLayers();
+    TRenderLayers();
+    if (isAnimationMode) {
+        TUpdateAnimation();
+        TRenderAnimation();
     }
 }
 
 void TRedo() {
-    if (RedoActions.size() > 0) {
-        ACTION action = RedoActions.back();
-        Actions.push_back(action);
-        RedoActions.pop_back();
+    if (RedoActions.empty()) return; // nada a refazer
 
-        action = Actions.back();
+    // Pega a última ação adicionada ao RedoActions (LIFO)
+    ACTION lastAction = RedoActions.back();
+    RedoActions.pop_back(); // remove do redo
 
-        if (action.Tool == TLayer) {
-            if (layers[action.Layer].has_value()) {
-                action.isLayerVisible = 1;
-                layers[action.Layer].value().isActive = true;
-                ShowWindow(LayerButtons[action.Layer].value().button, SW_SHOW);
-            }
+    // Adiciona novamente ao Actions
+    Actions.push_back(lastAction);
+
+    // Se for TLayer, reativa o layer
+    if (lastAction.Tool == TLayer && !isAnimationMode) {
+        if (layers[lastAction.Layer].has_value()) {
+            lastAction.isLayerVisible = 1;
+            layers[lastAction.Layer].value().isActive = true;
+            ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_SHOW);
         }
-
-        for (size_t i = 0; i < layers.size(); i++)
-        {
-            if (!layers[i].has_value()) continue;
-            TUpdateLayers(layers[i].value().LayerID);
-        }
-
-        TRenderLayers();
     }
-}
 
-void TReplayBackwards() {
-    if (Actions.size() > 0) {
-        ACTION lastAction = Actions.back();
-        RedoActions.push_back(lastAction);
-        Actions.pop_back();
-
-        lastActiveReplayFrame--;
-        HOnScrollWheelReplay(1);
+    // Atualiza todos os layers (mesma lógica do TUndo)
+    for (size_t i = 0; i < layers.size(); ++i) {
+        if (!layers[i].has_value()) continue;
+        TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
     }
-}
 
-void TReplayForward() {
-    if (RedoActions.size() > 0) {
-        ACTION action = RedoActions.back();
-        Actions.push_back(action);
-        RedoActions.pop_back();
+    TRenderLayers();
 
-        lastActiveReplayFrame++;
-        HOnScrollWheelReplay(-1);
+    if (isAnimationMode) {
+        TUpdateAnimation();
+        TRenderAnimation();
     }
 }
 
@@ -336,8 +354,17 @@ std::vector<COLORREF> CaptureCanvasPixels() {
     captureContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f)); // Match TRenderLayers
 
     D2D1_RECT_F destRect = D2D1::RectF(0, 0, logicalWidth, logicalHeight);
-    if (layers[layerIndex].has_value()) {
-        captureContext->DrawBitmap(layers[layerIndex].value().pBitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+
+    auto it = std::find_if(
+        layers.begin(),
+        layers.end(),
+        [](const std::optional<Layer>& optLayer) {
+            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
+        }
+    );
+
+    if (it->has_value()) {
+        captureContext->DrawBitmap(it->value().pBitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
     }
 
     hr = captureContext->EndDraw();

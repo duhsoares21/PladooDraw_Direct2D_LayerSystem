@@ -6,6 +6,7 @@
 #include "Layers.h"
 #include "Render.h"
 #include "Main.h"
+#include "Animation.h"
 
 /* LAYERS */
     
@@ -66,16 +67,20 @@ Microsoft::WRL::ComPtr<ID2D1Bitmap1> CreateEmptyLayerBitmap()
     return bitmap;
 }
 
-HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
+HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame = -1) {
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap = CreateEmptyLayerBitmap();
    
     pRenderTarget->SetTarget(pBitmap.Get());
     pRenderTarget->BeginDraw();
-    pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0)); // fully transparent
+    pRenderTarget->Clear(D2D1::ColorF(1, 1, 1, 0));
     pRenderTarget->EndDraw();
 
+    if (currentFrame == -1) {
+        currentFrame = CurrentFrameIndex;
+    }
+
     // Add to layers
-    Layer layer = { currentLayer, true, pBitmap };
+    Layer layer = { currentLayer, currentFrame, true, pBitmap };
     layers.emplace_back(layer);
 
     if (!fromFile) {
@@ -87,22 +92,13 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1) {
         ACTION action;
         action.Tool = TLayer;
         action.Layer = currentLayer;
+        action.FrameIndex = currentFrame;
         action.isLayerVisible = 1;
 
         Actions.push_back(action);
     }
 
     return S_OK;
-}
-
-void TReorderLayers(bool isAddingLayer) {
-    int counter = isAddingLayer ? 0 : -1;
-    for (auto it = LayerButtons.rbegin(); it != LayerButtons.rend(); ++it) {
-        if (it->has_value() && IsWindowVisible(it->value().button)) {
-            counter++;
-            MoveWindow(it->value().button, 0, counter * btnHeight, btnWidth, btnHeight, true);
-        }
-    }
 }
 
 void TAddLayerButton(int LayerButtonID, bool visible = true) {
@@ -186,12 +182,44 @@ void TAddLayerButton(int LayerButtonID, bool visible = true) {
 
     LayerButtons.push_back(LayerButton{
         LayerButtonID,
+        CurrentFrameIndex,
         layerButton,
         layerDeviceContext,
         layerSwapChain,
+        visible
     });
 
     TDrawLayerPreview(LayerButtonID);
+}
+
+void THideAllUnusedLayerButtons() {
+    for (auto it = LayerButtons.begin(); it != LayerButtons.end(); ++it) {
+        if (!it->has_value()) continue;
+        if (it->value().FrameIndex != CurrentFrameIndex) {
+            ShowWindow(it->value().button, SW_HIDE);
+        }
+    }
+
+    //REDRAW BUTTONS
+    for (auto it = LayerButtons.begin(); it != LayerButtons.end(); ++it) {
+        if (!it->has_value()) continue;
+        if (it->value().isActive) {
+            ShowWindow(it->value().button, SW_SHOW);
+        }
+        else {
+            ShowWindow(it->value().button, SW_HIDE);
+        }
+    }
+}
+
+void TReorderLayers(bool isAddingLayer) {
+    int counter = isAddingLayer ? 0 : -1;
+    for (auto it = LayerButtons.rbegin(); it != LayerButtons.rend(); ++it) {
+        if (it->has_value() && IsWindowVisible(it->value().button)) {
+            counter++;
+            MoveWindow(it->value().button, 0, counter * btnHeight, btnWidth, btnHeight, true);
+        }
+    }
 }
 
 HRESULT TRemoveLayer(int currentLayer = -1) {
@@ -279,134 +307,7 @@ void TReorderLayerDown() {
     TUpdateLayerButtonsPosition();
 }
 
-void TRenderActionToTarget(const ACTION& action) {
-
-    D2D1_COLOR_F color = HGetRGBColor(action.Color);
-    if (action.Tool == TPaintBucket) {
-        color = HGetRGBColor(action.FillColor);
-    }
-
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(color, &pBrush);
-    }
-    else {
-        pBrush->SetColor(color);
-    }
-
-    switch (action.Tool) {
-    case TEraser:
-        pRenderTarget->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        pRenderTarget->PopAxisAlignedClip();
-        break;
-
-    case TRectangle: {
-        pRenderTarget->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pRenderTarget->FillRectangle(action.Position, pBrush.Get());
-        pRenderTarget->PopAxisAlignedClip();
-        break;
-    }
-
-    case TEllipse: {
-        pRenderTarget->FillEllipse(action.Ellipse, pBrush.Get());
-        break;
-    }
-
-    case TLine: {
-        pRenderTarget->DrawLine(action.Line.startPoint, action.Line.endPoint, pBrush.Get(), action.BrushSize, nullptr);
-        break;
-    }
-
-    case TBrush: {
-        for (const auto& vertex : action.FreeForm.vertices) {
-            if (action.isPixelMode) {
-                int snappedLeft = static_cast<int>(vertex.x / pixelSizeRatio) * pixelSizeRatio;
-                int snappedTop = static_cast<int>(vertex.y / pixelSizeRatio) * pixelSizeRatio;
-
-                D2D1_RECT_F pixel = D2D1::RectF(
-                    static_cast<float>(snappedLeft),
-                    static_cast<float>(snappedTop),
-                    static_cast<float>(snappedLeft + pixelSizeRatio),
-                    static_cast<float>(snappedTop + pixelSizeRatio)
-                );
-
-                pRenderTarget->FillRectangle(pixel, pBrush.Get());
-            } else {
-
-                float scaledLeft = static_cast<float>(vertex.x) / zoomFactor;
-                float scaledTop = static_cast<float>(vertex.y) / zoomFactor;
-                float scaledBrushSize = static_cast<float>(currentBrushSize) / zoomFactor;
-                float scaledPixelSizeRatio = static_cast<float>(pixelSizeRatio) / zoomFactor;
-
-                D2D1_RECT_F rect = D2D1::RectF(
-                    scaledLeft - scaledBrushSize * 0.5f,
-                    scaledTop - scaledBrushSize * 0.5f,
-                    scaledLeft + scaledBrushSize * 0.5f,
-                    scaledTop + scaledBrushSize * 0.5f
-                );
-
-                pRenderTarget->DrawRectangle(rect, pBrush.Get());
-                pRenderTarget->FillRectangle(rect, pBrush.Get());
-            }
-        }
-        break;
-    }
-
-    case TPaintBucket: {
-        for (const auto& p : action.pixelsToFill) {
-            D2D1_RECT_F rect = D2D1::RectF((float)p.x * zoomFactor, (float)p.y * zoomFactor, (float)(p.x * zoomFactor + 1), (float)(p.y * zoomFactor + 1));
-            pRenderTarget->FillRectangle(&rect, pBrush.Get());
-        }
-        break;
-    }
-
-    case TWrite: {
-        if (action.Text.empty()) break;
-
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> localTextFormat;
-
-        pDWriteFactory->CreateTextFormat(
-            action.FontFamily.c_str(),
-            nullptr,
-            static_cast<DWRITE_FONT_WEIGHT>(action.FontWeight),
-            action.FontItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
-            static_cast<FLOAT>(action.FontSize) / 10.0f,   // if stored in tenths
-            L"en-us",
-            &localTextFormat
-        );
-
-        // Apply underline/strikethrough with a TextLayout if needed
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> textLayout;
-        pDWriteFactory->CreateTextLayout(
-            action.Text.c_str(),
-            static_cast<UINT32>(action.Text.size()),
-            localTextFormat.Get(),
-            action.Position.right - action.Position.left,
-            action.Position.bottom - action.Position.top,
-            &textLayout
-        );
-
-        if (action.FontUnderline)
-            textLayout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)action.Text.size() });
-        if (action.FontStrike)
-            textLayout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)action.Text.size() });
-
-        // Draw it
-        pRenderTarget->DrawTextLayout(
-            D2D1::Point2F(action.Position.left, action.Position.top),
-            textLayout.Get(),
-            pBrush.Get()
-        );
-        break;
-    }
-
-    default:
-        break;
-    }
-}
-
-void TUpdateLayers(int layerIndexTarget = -1) {
+void TUpdateLayers(int layerIndexTarget = -1, int CurrentFrameIndexTarget = -1) {
 
     if (layerIndex < 0 || layerIndex >= layers.size()) {
         layerIndex = 0;
@@ -416,17 +317,45 @@ void TUpdateLayers(int layerIndexTarget = -1) {
         layerIndexTarget = layerIndex;
     }
 
-    auto& layer = layers[layerIndexTarget];
+    if (CurrentFrameIndexTarget == -1) {
+        CurrentFrameIndexTarget == CurrentFrameIndex;
+    }
 
-    pRenderTarget->SetTarget(layer.value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-    pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f)); // Transparente
-
-    for (const auto& action : Actions) {
-        if (action.Layer == layerIndexTarget) {
-            TRenderActionToTarget(action);
+    //GetCurrent Frame
+    auto itLayer = std::find_if(
+        layers.begin(),
+        layers.end(),
+        [layerIndexTarget, CurrentFrameIndexTarget](const std::optional<Layer>& optLayer) {
+            return optLayer.has_value() &&
+                optLayer->LayerID == layerIndexTarget &&
+                optLayer->FrameIndex == CurrentFrameIndexTarget;
         }
+    );
+
+    // Se não achar, sai
+    if (itLayer == layers.end() || !itLayer->has_value())
+        return;
+
+    // 2. Coletar todas as actions que pertencem a esse mesmo layer/frame
+    std::vector<ACTION> validActions;
+    std::copy_if(
+        Actions.begin(),
+        Actions.end(),
+        std::back_inserter(validActions),
+        [layerIndexTarget, CurrentFrameIndexTarget](const ACTION& act) {
+            return act.Layer == layerIndexTarget && act.FrameIndex == CurrentFrameIndexTarget;
+        }
+    );
+
+    // 3. Renderizar todas as ações dentro do layer encontrado
+    auto& layer = itLayer->value(); // referência para evitar cópia
+    pRenderTarget->SetTarget(layer.pBitmap.Get());
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    pRenderTarget->BeginDraw();
+    pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
+
+    for (const auto& action : validActions) {
+        HRenderAction(action, pRenderTarget, COLOR_UNDEFINED);
     }
 
     pRenderTarget->EndDraw();
@@ -434,48 +363,10 @@ void TUpdateLayers(int layerIndexTarget = -1) {
 
 void TRenderLayers() {
 
-    // Check swap chain
-    if (!g_pSwapChain) {
-        OutputDebugStringW(L"TRenderLayers: g_pSwapChain is nullptr. Attempting to reinitialize.\n");
-        HRESULT hr = TInitializeDocument(docHWND, -1, -1, -1, btnWidth, btnHeight);
-        if (FAILED(hr)) {
-            OutputDebugStringW((L"TRenderLayers: Failed to reinitialize document, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-            return;
-        }
-    }
-
-    // Get backbuffer surface
-    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
-    HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(IDXGISurface), &backBuffer);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"TRenderLayers: Failed to get backbuffer, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return;
-    }
-
-    // Get DPI from pRenderTarget
-    FLOAT dpiX, dpiY;
-    pRenderTarget->GetDpi(&dpiX, &dpiY);
-
-    // Create bitmap from backbuffer
-    D2D1_BITMAP_PROPERTIES1 bitmapProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        dpiX, dpiY
-    );
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
-    hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.ReleaseAndGetAddressOf());
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"TRenderLayers: Failed to create bitmap from DXGI surface, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return;
-    }
-
-    // Set as target
     pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
-
     pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-    pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));   
+    pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());  
         
     std::vector<LayerOrder> sortedLayers = layersOrder;
     std::sort(sortedLayers.begin(), sortedLayers.end(),
@@ -486,29 +377,32 @@ void TRenderLayers() {
     for (const auto& lo : sortedLayers) {
         int index = lo.layerIndex;
         if (index < 0 || index >= layers.size()) continue;
-        if (layers[index].has_value()) {
-            if (layers[index].value().isActive) {
-                pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
+        if (!layers[index].has_value()) continue;
+        if (layers[index].value().FrameIndex == CurrentFrameIndex) {
+            pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
+        }
+
+        if (isAnimationMode && CurrentFrameIndex > 0 && !isPlayingAnimation) {
+            if (layers[index].value().FrameIndex == CurrentFrameIndex - 1) {
+                pRenderTarget->DrawBitmap(
+                    layers[index].value().pBitmap.Get(),
+                    nullptr,                       // desenha em toda a área
+                    0.2f,                          // 20% de opacidade
+                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR
+                );
             }
         }
     }
 
     pRenderTarget->EndDraw();
 
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-
-    // Present
-    hr = g_pSwapChain->Present(0, 0);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"TRenderLayers: Present failed, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-    }
-
+    g_pSwapChain->Present(0, 0);
+  
     if (layers[layerIndex].has_value()) {
         TDrawLayerPreview(layerIndex);
     }
 }
     
-// This function now uses the global pBrush, creating it if it's null.
 void TSelectedLayerHighlight(int currentLayer) {
     // Exit if there's nothing to draw on.
     if (LayerButtons.empty()) {
@@ -536,9 +430,19 @@ void TSelectedLayerHighlight(int currentLayer) {
         GetClientRect(btn.button, &rc);
         D2D1_RECT_F drawRect = D2D1::RectF(0.0f, 0.0f, static_cast<float>(rc.right), static_cast<float>(rc.bottom));
 
-        // 1. Draw the layer's bitmap preview
-        if (i < layers.size() && layers[i].has_value()) {
-            deviceContext->DrawBitmap(layers[i].value().pBitmap.Get(), drawRect);
+        auto it = std::find_if(
+            layers.begin(),
+            layers.end(),
+            [&](const std::optional<Layer>& optLayer) {
+                return optLayer.has_value()
+                    && optLayer->LayerID == btn.LayerID     // compara com LayerID do botão
+                    && optLayer->FrameIndex == CurrentFrameIndex;
+            }
+        );
+
+        if (it != layers.end() && it->has_value()) {
+            // desenha o bitmap do layer encontrado (miniatura do frame atual)
+            deviceContext->DrawBitmap(it->value().pBitmap.Get(), drawRect);
         }
 
         // --- Logic for Creating/Setting the Brush Color ---

@@ -12,6 +12,8 @@
 extern const int DX[4];
 extern const int DY[4];
 
+extern const D2D1_COLOR_F COLOR_UNDEFINED;
+
 // Variáveis globais
 extern std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
@@ -21,7 +23,7 @@ extern HWND layerWindowHWND;
 extern HWND layersHWND;
 extern HWND layersControlButtonsGroupHWND;
 extern HWND toolsHWND;
-extern HWND replayHWND;
+extern HWND timelineHWND;
 extern HWND highlightFrame;
 extern HWND* hLayerButtons;
 
@@ -29,7 +31,7 @@ extern Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush;
 extern Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
 extern Microsoft::WRL::ComPtr<ID2D1Factory1> pD2DFactory;
 extern Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
-
+extern Microsoft::WRL::ComPtr<ID3D11RenderTargetView> g_pRenderTargetView;
 extern Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTarget;
 extern Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTargetLayer;
 
@@ -47,7 +49,7 @@ extern Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
 extern float logicalWidth;
 extern float logicalHeight;
 
-extern int g_scrollOffsetReplay;
+extern int g_scrollOffsetTimeline;
 extern int lastActiveReplayFrame;
 
 extern D2D1_ELLIPSE ellipse;
@@ -68,6 +70,7 @@ extern float defaultEraserSize;
 extern float currentBrushSize;
 extern float currentEraserSize;
 
+extern int CurrentFrameIndex;
 extern int selectedTool;
 
 extern int prevLeft;
@@ -80,6 +83,8 @@ extern int pixelSizeRatio;
 
 extern bool isPixelMode;
 extern int isReplayMode;
+extern int isAnimationMode;
+extern bool isPlayingAnimation;
 
 extern bool isDrawingRectangle;
 extern bool isDrawingEllipse;
@@ -98,6 +103,8 @@ extern std::string loadedFileName;
 extern Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 extern std::vector<LayerOrder> layersOrder;
+extern std::vector<Layer> layerBitmaps;
+extern std::vector<std::optional<Layer>> animationLayers;
 extern std::vector<std::optional<Layer>> layers;
 
 extern std::vector<ACTION> Actions;
@@ -116,7 +123,7 @@ extern int btnWidth, btnHeight;
 extern HWND buttonUp, buttonDown, buttonPlus, buttonMinus;
 
 extern std::vector<std::optional<LayerButton>> LayerButtons;
-extern std::vector<std::optional<ReplayFrameButton>> ReplayFrameButtons;
+extern std::vector<std::optional<TimelineFrameButton>> TimelineFrameButtons;
 
 extern POINT mouseLastClickPosition;
 

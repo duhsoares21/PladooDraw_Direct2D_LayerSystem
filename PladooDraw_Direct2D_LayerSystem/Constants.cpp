@@ -4,6 +4,8 @@
 const int DX[4] = { -1, 1, 0, 0 };
 const int DY[4] = { 0, 0, -1, 1 };
 
+const D2D1_COLOR_F COLOR_UNDEFINED = { -1.0f, -1.0f, -1.0f, -1.0f };
+
 std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
 HWND mainHWND = NULL;
@@ -12,7 +14,7 @@ HWND layerWindowHWND = NULL;
 HWND layersHWND = NULL;
 HWND layersControlButtonsGroupHWND = NULL;
 HWND toolsHWND = NULL;
-HWND replayHWND = NULL;
+HWND timelineHWND = NULL;
 HWND* hLayerButtons = NULL;
 
 Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
@@ -28,6 +30,7 @@ Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
 Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
 Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
 
+Microsoft::WRL::ComPtr<ID3D11RenderTargetView> g_pRenderTargetView;
 Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;
 Microsoft::WRL::ComPtr<IDCompositionTarget> g_pDCompTarget;
 Microsoft::WRL::ComPtr<IDCompositionVisual> g_pDCompVisual;
@@ -38,7 +41,7 @@ float logicalWidth = 0.0f;
 float logicalHeight = 0.0f;
 
 int lastActiveReplayFrame = 0;
-int g_scrollOffsetReplay = 0;
+int g_scrollOffsetTimeline = 0;
 
 D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
 D2D1_RECT_F rectangle = D2D1::RectF(0, 0, 0, 0);
@@ -58,6 +61,7 @@ float defaultEraserSize = 18.0f;
 float currentBrushSize = 1.0f;
 float currentEraserSize = 18.0f;
 
+int CurrentFrameIndex = 0;
 int selectedTool = 1;
 
 int prevLeft = -1;
@@ -70,6 +74,8 @@ int pixelSizeRatio = -1;
 
 bool isPixelMode = false;
 int isReplayMode = 0;
+int isAnimationMode = 0;
+bool isPlayingAnimation = false;
 
 bool isDrawingRectangle = false;
 bool isDrawingEllipse = false;
@@ -88,7 +94,9 @@ std::string loadedFileName;
 Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 std::vector<LayerOrder> layersOrder;
+std::vector<Layer> layerBitmaps;
 std::vector<std::optional<Layer>> layers;
+std::vector<std::optional<Layer>> animationLayers;
 
 std::vector<ACTION> Actions;
 std::vector<ACTION> RedoActions;
@@ -105,7 +113,7 @@ int btnWidth = 90, btnHeight = 90;
 HWND buttonUp, buttonDown, buttonPlus, buttonMinus;
 
 std::vector<std::optional<LayerButton>> LayerButtons;
-std::vector<std::optional<ReplayFrameButton>> ReplayFrameButtons;
+std::vector<std::optional<TimelineFrameButton>> TimelineFrameButtons;
 
 POINT mouseLastClickPosition = { 0, 0 };
 
