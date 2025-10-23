@@ -703,6 +703,7 @@ void HOnScrollWheelTimeline(int wParam) {
     int timelineParentWidth = rcParent.right - rcParent.left;
 
     for (size_t i = 0; i < TimelineFrameButtons.size(); i++) {
+        if (!TimelineFrameButtons[i].has_value()) continue;
         int currentFrameIndex = TimelineFrameButtons[i].value().FrameIndex;
 
         int x = ((timelineParentWidth / 2) - (itemWidth / 2) + (itemWidth * i)) - g_scrollOffsetTimeline;
