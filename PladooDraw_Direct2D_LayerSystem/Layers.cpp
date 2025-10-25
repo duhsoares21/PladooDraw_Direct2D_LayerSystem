@@ -130,32 +130,16 @@ void TAddLayerButton(int LayerButtonID, bool visible = true) {
     GetClientRect(layerButton, &rc);
     D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
 
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = TSetSwapChainDescription(size.width, size.height, DXGI_ALPHA_MODE_IGNORE);
+
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> layerDeviceContext;
     HRESULT hr = g_pD2DDevice->CreateDeviceContext(
         D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
         layerDeviceContext.GetAddressOf()
     );
 
-    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
-    hr = g_pD3DDevice.As(&dxgiDevice);
-    
-    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    hr = dxgiDevice->GetAdapter(&adapter);
-
-    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
-    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
-    swapDesc.Width = size.width;
-    swapDesc.Height = size.height;
-    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.BufferCount = 2;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-
     Microsoft::WRL::ComPtr<IDXGISwapChain1> layerSwapChain;
-    hr = dxgiFactory->CreateSwapChainForHwnd(
+    g_dxgiFactory->CreateSwapChainForHwnd(
         g_pD3DDevice.Get(),
         layerButton,
         &swapDesc,

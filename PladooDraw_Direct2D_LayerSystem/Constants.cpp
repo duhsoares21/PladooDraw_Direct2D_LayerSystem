@@ -29,6 +29,9 @@ Microsoft::WRL::ComPtr<ID3D11Device> g_pD3DDevice;
 Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
 Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
 Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
+Microsoft::WRL::ComPtr<IDXGIDevice1> g_dxgiDevice;
+Microsoft::WRL::ComPtr<IDXGIAdapter> g_adapter;
+Microsoft::WRL::ComPtr<IDXGIFactory2> g_dxgiFactory;
 
 Microsoft::WRL::ComPtr<ID3D11RenderTargetView> g_pRenderTargetView;
 Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;

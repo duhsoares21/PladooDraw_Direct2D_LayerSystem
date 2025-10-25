@@ -14,7 +14,7 @@ extern const int DY[4];
 
 extern const D2D1_COLOR_F COLOR_UNDEFINED;
 
-// Variáveis globais
+// Variï¿½veis globais
 extern std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
 extern HWND mainHWND;
@@ -39,6 +39,9 @@ extern Microsoft::WRL::ComPtr<ID3D11Device> g_pD3DDevice;
 extern Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
 extern Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
 extern Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
+extern Microsoft::WRL::ComPtr<IDXGIDevice1> g_dxgiDevice;
+extern Microsoft::WRL::ComPtr<IDXGIAdapter> g_adapter;
+extern Microsoft::WRL::ComPtr<IDXGIFactory2> g_dxgiFactory;
 
 extern Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;
 extern Microsoft::WRL::ComPtr<IDCompositionTarget> g_pDCompTarget;

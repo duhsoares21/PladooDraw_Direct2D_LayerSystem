@@ -1,6 +1,9 @@
 ﻿#include "pch.h"
 #include "Constants.h"
 #include "Helpers.h"
+
+#include <Render.h>
+
 #include "Tools.h"
 #include "Layers.h"
 #include "SurfaceDial.h"
@@ -228,31 +231,10 @@ RenderData HCreateRenderDataHWND(HWND hWnd) {
         deviceContext.GetAddressOf()
     );
 
-    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
-    hr = g_pD3DDevice.As(&dxgiDevice);
-
-    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    hr = dxgiDevice->GetAdapter(&adapter);
-
-    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
-    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
-    swapDesc.Width = size.width;
-    swapDesc.Height = size.height;
-    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.SampleDesc.Quality = 0;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.BufferCount = 2;
-    swapDesc.Scaling = DXGI_SCALING_STRETCH;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    swapDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    swapDesc.Flags = 0;
-   
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = TSetSwapChainDescription(size.width, size.height, DXGI_ALPHA_MODE_IGNORE);
 
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
-    hr = dxgiFactory->CreateSwapChainForHwnd(
+    hr = g_dxgiFactory->CreateSwapChainForHwnd(
         g_pD3DDevice.Get(),
         hWnd,
         &swapDesc,
@@ -374,30 +356,10 @@ void HCreateHighlightFrame() {
         replayDeviceContext.GetAddressOf()
     );
 
-    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
-    hr = g_pD3DDevice.As(&dxgiDevice);
-
-    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    hr = dxgiDevice->GetAdapter(&adapter);
-
-    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
-    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
-    swapDesc.Width = size.width;
-    swapDesc.Height = size.height;
-    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.SampleDesc.Quality = 0;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.BufferCount = 2;
-    swapDesc.Scaling = DXGI_SCALING_STRETCH;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    swapDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    swapDesc.Flags = 0;
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = TSetSwapChainDescription(size.width, size.height, DXGI_ALPHA_MODE_IGNORE);
 
     Microsoft::WRL::ComPtr<IDXGISwapChain1> replaySwapChain;
-    hr = dxgiFactory->CreateSwapChainForHwnd(
+    hr = g_dxgiFactory->CreateSwapChainForHwnd(
         g_pD3DDevice.Get(),
         highlightFrame,
         &swapDesc,
@@ -427,7 +389,7 @@ void HCreateHighlightFrame() {
 
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> highlightReplayBrush;
 
-    D2D1_COLOR_F color = D2D1::ColorF(0, 0, 1, 1);
+    D2D1_COLOR_F color = D2D1::ColorF(0.00f, 0.00f, 1.00f, 1);
 
     if (highlightReplayBrush == nullptr) {
         replayDeviceContext->CreateSolidColorBrush(color, &highlightReplayBrush);
@@ -702,14 +664,18 @@ void HOnScrollWheelTimeline(int wParam) {
 
     int timelineParentWidth = rcParent.right - rcParent.left;
 
+    int index = 0;
+
     for (size_t i = 0; i < TimelineFrameButtons.size(); i++) {
         if (!TimelineFrameButtons[i].has_value()) continue;
         int currentFrameIndex = TimelineFrameButtons[i].value().FrameIndex;
 
-        int x = ((timelineParentWidth / 2) - (itemWidth / 2) + (itemWidth * i)) - g_scrollOffsetTimeline;
+        int x = ((timelineParentWidth / 2) - (itemWidth / 2) + (itemWidth * index)) - g_scrollOffsetTimeline;
         int y = 10;
 
-        MoveWindow(TimelineFrameButtons[currentFrameIndex].value().frame,
+        index++;
+
+        MoveWindow(TimelineFrameButtons[i].value().frame,
             x, y, itemWidth, itemHeight, TRUE);
     }
 }

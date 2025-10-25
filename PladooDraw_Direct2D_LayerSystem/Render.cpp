@@ -101,61 +101,20 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
         }
     }
 
-    // Get DXGI device
-    Microsoft::WRL::ComPtr<IDXGIDevice1> dxgiDevice;
-    hr = g_pD3DDevice.As(&dxgiDevice);
+    hr = TCreateRender();
     if (FAILED(hr)) {
         return hr;
     }
 
-    // Create D2D1 device
-    hr = pD2DFactory->CreateDevice(dxgiDevice.Get(), &g_pD2DDevice);
-    if (FAILED(hr)) {
-        return hr;
-    }
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = TSetSwapChainDescription(width, height, DXGI_ALPHA_MODE_IGNORE);
 
-    hr = g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pRenderTarget);
-
-    if (FAILED(hr)) {
-        HPrintHResultError(hr);
-        return hr;
-    }
-
-    // Create DXGI factory
-    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    hr = dxgiDevice->GetAdapter(&adapter);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
-    hr = adapter->GetParent(__uuidof(IDXGIFactory2), &dxgiFactory);
-
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
-    swapDesc.Width = width;
-    swapDesc.Height = height;
-    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.SampleDesc.Quality = 0;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.BufferCount = 2;
-    swapDesc.Scaling = DXGI_SCALING_STRETCH;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    swapDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    swapDesc.Flags = 0;
-
-    //hr = dxgiFactory->CreateSwapChainForComposition()
-    hr = dxgiFactory->CreateSwapChainForHwnd(g_pD3DDevice.Get(), hWnd, &swapDesc, nullptr, nullptr, &g_pSwapChain);
+    hr = g_dxgiFactory->CreateSwapChainForHwnd(g_pD3DDevice.Get(), hWnd, &swapDesc, nullptr, nullptr, &g_pSwapChain);
     
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = dxgiFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
+    hr = g_dxgiFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
     if (FAILED(hr)) {
         return hr;
     }
@@ -217,4 +176,51 @@ HRESULT TInitializeLayersButtons(HWND* buttonsHwnd) {
     buttonMinus = buttonsHwnd[3];
 
     return S_OK;
+}
+
+HRESULT TCreateRender() {
+
+    HRESULT hr = g_pD3DDevice.As(&g_dxgiDevice);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = pD2DFactory->CreateDevice(g_dxgiDevice.Get(), &g_pD2DDevice);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pRenderTarget);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    g_dxgiDevice->GetAdapter(&g_adapter);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    g_adapter->GetParent(__uuidof(IDXGIFactory2), &g_dxgiFactory);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    return S_OK;
+}
+
+DXGI_SWAP_CHAIN_DESC1 TSetSwapChainDescription(int sizeW, int sizeH, DXGI_ALPHA_MODE AlphaMode) {
+    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
+    swapDesc.Width = sizeW;
+    swapDesc.Height = sizeH;
+    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    swapDesc.SampleDesc.Count = 1;
+    swapDesc.SampleDesc.Quality = 0;
+    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapDesc.BufferCount = 2;
+    swapDesc.Scaling = DXGI_SCALING_STRETCH;
+    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    swapDesc.AlphaMode = AlphaMode;
+    swapDesc.Flags = 0;
+
+    return swapDesc;
 }

@@ -9,3 +9,5 @@ extern HRESULT TInitializeLayers(HWND pLayerWindow, HWND pLayers, HWND pControlB
 extern HRESULT TInitializeTools(HWND hWnd);
 extern HRESULT TInitializeReplay(HWND hWnd);
 extern HRESULT TInitializeLayersButtons(HWND* buttonsHwnd);
+extern HRESULT TCreateRender();
+extern DXGI_SWAP_CHAIN_DESC1 TSetSwapChainDescription(int sizeW, int sizeH, DXGI_ALPHA_MODE AlphaMode);
