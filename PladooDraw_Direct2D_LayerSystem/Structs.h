@@ -16,6 +16,11 @@ struct LINE {
     D2D1_POINT_2F endPoint;
 };
 
+struct FLOATPOINT {
+    float x;
+    float y;
+};
+
 struct ACTION {
     int Tool;
     int Layer;
@@ -32,7 +37,8 @@ struct ACTION {
     bool isPixelMode;
     int mouseX;
     int mouseY;
-    std::vector<POINT> pixelsToFill;
+    std::vector<FLOATPOINT> pixelsToFill;
+    int PaintTarget;
 
     std::wstring Text;
     std::wstring FontFamily;   // e.g. "Arial"
@@ -47,6 +53,7 @@ struct Layer {
     int LayerID;
     int FrameIndex;
     bool isActive;
+    bool isVisible;
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
 };
 

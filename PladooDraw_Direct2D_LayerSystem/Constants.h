@@ -55,6 +55,8 @@ extern float logicalHeight;
 extern int g_scrollOffsetTimeline;
 extern int lastActiveReplayFrame;
 
+extern bool hideShadow;
+
 extern D2D1_ELLIPSE ellipse;
 extern D2D1_RECT_F rectangle;
 extern D2D1_RECT_F textArea;
@@ -107,7 +109,6 @@ extern Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 extern std::vector<LayerOrder> layersOrder;
 extern std::vector<Layer> layerBitmaps;
-extern std::vector<std::optional<Layer>> animationLayers;
 extern std::vector<std::optional<Layer>> layers;
 
 extern std::vector<ACTION> Actions;

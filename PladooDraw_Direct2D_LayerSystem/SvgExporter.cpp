@@ -106,7 +106,7 @@ void ExportActionsToSvg(const std::vector<ACTION>& actions, const std::string& f
         case TPaintBucket: // Paint Bucket
         {
             auto pixels = action.pixelsToFill; // cria cópia pra ordenar
-            std::sort(pixels.begin(), pixels.end(), [](const POINT& a, const POINT& b) {
+            std::sort(pixels.begin(), pixels.end(), [](const FLOATPOINT& a, const FLOATPOINT& b) {
                 return (a.y < b.y) || (a.y == b.y && a.x < b.x);
                 });
 

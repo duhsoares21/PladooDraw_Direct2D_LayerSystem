@@ -25,6 +25,7 @@
 #include <mutex>
 #include <numbers>
 #include <queue>
+#include <ranges>
 #include <random>
 #include <set>
 #include <shlobj.h>  

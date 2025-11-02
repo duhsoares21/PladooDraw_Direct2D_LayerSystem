@@ -41,6 +41,7 @@ void THandleMouseUp() {
             action.FrameIndex = CurrentFrameIndex;
             action.Position = rectangle;
             action.Color = currentColor;
+            action.IsFilled = false;
 
             rectangle = D2D1::RectF(0, 0, 0, 0);
             //isDrawingRectangle = false;
@@ -55,6 +56,7 @@ void THandleMouseUp() {
             action.Position = rectangle;
             action.Ellipse = ellipse;
             action.Color = currentColor;
+            action.IsFilled = false;
 
             ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
             //isDrawingEllipse = false;
@@ -69,6 +71,7 @@ void THandleMouseUp() {
             action.Line = { startPoint, endPoint };
             action.Color = currentColor;
             action.BrushSize = currentBrushSize;
+            action.IsFilled = false;
 
             //isDrawingLine = false;
         }
@@ -192,7 +195,7 @@ void TUndo() {
 void TRedo() {
     if (RedoActions.empty()) return; // nada a refazer
 
-    // Pega a �ltima a��o adicionada ao RedoActions (LIFO)
+    // Pega a �ltima a��o adicionada ao RedoActions (LIFO)
     ACTION lastAction = RedoActions.back();
     RedoActions.pop_back(); // remove do redo
 
@@ -208,7 +211,7 @@ void TRedo() {
         }
     }
 
-    // Atualiza todos os layers (mesma l�gica do TUndo)
+    // Atualiza todos os layers (mesma l�gica do TUndo)
     for (size_t i = 0; i < layers.size(); ++i) {
         if (!layers[i].has_value()) continue;
         TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
@@ -224,22 +227,57 @@ void TRedo() {
 
 /* MOVE TOOL AUX */
 
-bool IsPointNearSegment(float px, float py, float x1, float y1, float x2, float y2, float tolerance = 5.0f) {
+bool IsPointNearSegment(float px, float py, float x1, float y1, float x2, float y2, float threshold = 3.0f) {
+    // Calcula distância do ponto ao segmento
     float dx = x2 - x1;
     float dy = y2 - y1;
+    float lenSq = dx * dx + dy * dy;
 
-    if (dx == 0 && dy == 0) {
-        return (std::hypot(px - x1, py - y1) <= tolerance);
-    }
-
-    float t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+    float t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
     t = (std::max)(0.0f, (std::min)(1.0f, t));
 
     float projX = x1 + t * dx;
     float projY = y1 + t * dy;
 
-    float distance = std::hypot(px - projX, py - projY);
-    return (distance <= tolerance);
+    float distSq = (px - projX) * (px - projX) + (py - projY) * (py - projY);
+    return distSq <= threshold * threshold;
+}
+
+// Teste de ponto dentro de polígono (ray casting)
+bool IsPointInsidePolygon(const std::vector<VERTICE>& vertices, float px, float py) {
+    bool inside = false;
+    size_t n = vertices.size();
+
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const auto& vi = vertices[i];
+        const auto& vj = vertices[j];
+
+        bool intersect = ((vi.y > py) != (vj.y > py)) &&
+                         (px < (vj.x - vi.x) * (py - vi.y) / (vj.y - vi.y) + vi.x);
+        if (intersect)
+            inside = !inside;
+    }
+
+    return inside;
+}
+
+// Combinação das duas checagens
+bool IsPointNearEdgeOrInside(const std::vector<VERTICE>& vertices, float px, float py, float threshold = 3.0f) {
+    if (vertices.size() < 2)
+        return false;
+
+    // Checa proximidade das arestas
+    for (size_t i = 1; i < vertices.size(); ++i) {
+        if (IsPointNearSegment(px, py, vertices[i - 1].x, vertices[i - 1].y, vertices[i].x, vertices[i].y, threshold))
+            return true;
+    }
+
+    // Também verifica o último segmento (fechando o polígono)
+    if (IsPointNearSegment(px, py, vertices.back().x, vertices.back().y, vertices.front().x, vertices.front().y, threshold))
+        return true;
+
+    // Se não está próximo da borda, verifica se está dentro
+    return IsPointInsidePolygon(vertices, px, py);
 }
 
 bool IsPointNearEdge(const std::vector<VERTICE> vertices, float px, float py) {
@@ -303,7 +341,7 @@ bool IsPointNearLine(const D2D1_RECT_F& lineRect, float x, float y, float tolera
 bool HitTestAction(const ACTION& action, float x, float y) {
     switch (action.Tool) {
     case TBrush:
-        return IsPointNearEdge(action.FreeForm.vertices, x, y);
+        return IsPointNearEdgeOrInside(action.FreeForm.vertices, x, y);
     case TRectangle:
     case TWrite:
         return IsPointInsideRect(action.Position, x, y);

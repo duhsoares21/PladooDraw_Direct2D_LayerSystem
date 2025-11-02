@@ -213,7 +213,7 @@ void TAnimationForward() {
         )
     ) - 1;
 
-    if (counter >= validFramesSize) return;
+    if (CurrentFrameIndex >= validFramesSize) return;
 
     int frameIndex = CurrentFrameIndex + 1;
     TSetAnimationFrame(frameIndex);
@@ -224,7 +224,7 @@ void TAnimationForward() {
 }
 
 void TAnimationBackward() {
-    if (counter <= 0) return;
+    if (CurrentFrameIndex <= 0) return;
 
     int frameIndex = CurrentFrameIndex - 1;
     TSetAnimationFrame(frameIndex);

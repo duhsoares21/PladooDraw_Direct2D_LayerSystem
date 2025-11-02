@@ -379,6 +379,7 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 }
 
 void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
+
     auto it = std::find_if(
         layers.begin(),
         layers.end(),
@@ -401,8 +402,8 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
         return;
     }
 
-    int startX = static_cast<int>(mouseX / zoomFactor);
-    int startY = static_cast<int>(mouseY / zoomFactor);
+    float startX = mouseX / zoomFactor;
+    float startY = mouseY / zoomFactor;
     int startIdx = startY * capW + startX;
 
     if (startX < 0 || startX >= capW || startY < 0 || startY >= capH) return;
@@ -411,10 +412,10 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     if (targetColor == fillColor) return;
 
     // --- OPTIMIZED BFS ---
-    std::vector<POINT> pixelsToFill;
+    std::vector<FLOATPOINT> pixelsToFill;
     pixelsToFill.reserve(10000);
 
-    std::vector<POINT> q;  // flat vector replaces queue
+    std::vector<FLOATPOINT> q;  // flat vector replaces queue
     q.reserve(capW * capH);
     q.push_back({ startX, startY });
 
@@ -426,12 +427,12 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
 
     size_t idx = 0;
     while (idx < q.size()) {
-        POINT p = q[idx++];
+        FLOATPOINT p = q[idx++];
         pixelsToFill.push_back(p);
 
         for (int i = 0; i < 4; ++i) {
-            int nx = p.x + dx[i];
-            int ny = p.y + dy[i];
+            float nx = p.x + dx[i];
+            float ny = p.y + dy[i];
             if (nx >= 0 && nx < capW && ny >= 0 && ny < capH) {
                 int ni = ny * capW + nx;
                 if (!visited[ni] && pixels[ni] == targetColor) {
@@ -469,6 +470,15 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     pRenderTarget->EndDraw();
 
     // 6) Salva ACTION
+
+    int paintTargetIndex = -1;
+
+    for (size_t i = 0; i < Actions.size(); ++i) {
+        if (HitTestAction(Actions[i], mouseX, mouseY)) {
+            paintTargetIndex = i;
+        }
+    }
+
     ACTION action;
     action.Tool = TPaintBucket;
     action.Layer = layerIndex;
@@ -477,6 +487,7 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     action.mouseX = startX;
     action.mouseY = startY;
     action.pixelsToFill = std::move(pixelsToFill);
+    action.PaintTarget = paintTargetIndex;
     Actions.emplace_back(std::move(action));
 
     TRenderLayers();
@@ -668,11 +679,18 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
     float maxX = -FLT_MAX;
     float maxY = -FLT_MAX;
 
-    if (selected.Tool == TBrush) {
-        for (const auto& action : Actions) {
-            if (action.Layer != layerIndex || action.Tool != TBrush) continue;
+    float deltaX;
+    float deltaY;
 
-            for (const auto& v : action.FreeForm.vertices) {
+    if (selected.Tool == TBrush) {
+        for (auto action = Actions.begin(); action != Actions.end(); ++action) {
+            if (action->Layer != layerIndex || action->Tool != TBrush) continue;
+
+            size_t index = std::distance(Actions.begin(), action);
+
+            if (index != selectedIndex) continue;
+
+            for (const auto& v : action->FreeForm.vertices) {
                 minX = (std::min)(minX, v.x);
                 minY = (std::min)(minY, v.y);
                 maxX = (std::max)(maxX, v.x);
@@ -716,15 +734,19 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
     // Step 2: Calculate movement delta
     float centerX = (minX + maxX) / 2.0f;
     float centerY = (minY + maxY) / 2.0f;
-    float deltaX = scaledX - centerX;
-    float deltaY = scaledY - centerY;
+    deltaX = scaledX - centerX;
+    deltaY = scaledY - centerY;
 
     // Step 3: Apply movement
     if (selected.Tool == TBrush) {
-        for (auto& action : Actions) {
-            if (action.Layer != layerIndex || action.Tool != TBrush) continue;
+        for (auto action = Actions.begin(); action != Actions.end(); ++action) {
+            if (action->Layer != layerIndex || action->Tool != TBrush) continue;
 
-            for (auto& v : action.FreeForm.vertices) {
+            size_t index = std::distance(Actions.begin(), action);
+
+            if (index != selectedIndex) continue;
+
+            for (auto& v : action->FreeForm.vertices) {
                 v.x += deltaX;
                 v.y += deltaY;
             }
@@ -756,6 +778,18 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
 
         default:
             break;
+        }
+    }
+
+    auto it = std::find_if(Actions.begin(), Actions.end(),
+    [](ACTION& action) {
+        return action.PaintTarget == selectedIndex;
+    });
+
+    if (it != Actions.end()) {
+        for (auto& pixel : it->pixelsToFill) {
+            pixel.x += deltaX;
+            pixel.y += deltaY;
         }
     }
 

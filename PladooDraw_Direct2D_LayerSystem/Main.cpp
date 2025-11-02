@@ -102,8 +102,8 @@ HRESULT InitializeTools(HWND hWnd) {
     return TInitializeTools(hWnd);
 }
 
-HRESULT InitializeReplay(HWND hWnd) {
-    return TInitializeReplay(hWnd);
+HRESULT InitializeTimeline(HWND hWnd) {
+    return TInitializeTimeline(hWnd);
 }
 
 HRESULT InitializeLayersButtons(HWND* buttonsHwnd) {
@@ -209,16 +209,37 @@ void ReplayForward() {
 
 /* ANINMATION */
 
+int GetCurrentFrameIndex() {
+    return CurrentFrameIndex;
+}
+
+int GetMaxFrameIndex() {
+    return HGetMaxFrameIndex();
+}
+
 void SetAnimationMode(int pAnimationMode) {
-    if (TimelineFrameButtons.size() == 0) {
+    if (TimelineFrameButtons.empty()) {
         TCreateAnimationFrame(0, 0);
     }
     HSetAnimationMode(pAnimationMode);
 }
 
+void SetAnimationFrame(int pAnimationFrame) {
+    TSetAnimationFrame(pAnimationFrame);
+}
+
+void SetTimelineScrollPosition(int index) {
+    HSetScrollPosition(index);
+}
+
+void SetHideShadow() {
+    hideShadow = hideShadow != true;
+    TRenderLayers();
+}
+
 void CreateAnimationFrame() {
     std::vector<std::optional<TimelineFrameButton>> validTimelineFrames;
-    std::copy_if(
+    ranges::copy_if(
         TimelineFrameButtons.begin(),
         TimelineFrameButtons.end(),
         std::back_inserter(validTimelineFrames),
@@ -263,12 +284,12 @@ void ZoomOut_Default() {
     TZoomOut(0.1f);
 }
 
-void ZoomIn(float zoomRatio) {
-    TZoomIn(zoomRatio);
+void ZoomIn(float zoomIncrement) {
+    TZoomIn(zoomIncrement);
 }
 
-void ZoomOut(float zoomRatio) {
-    TZoomOut(zoomRatio);
+void ZoomOut(float zoomIncrement) {
+    TZoomOut(zoomIncrement);
 }
 
 void Zoom() {
@@ -282,17 +303,22 @@ void DecreaseBrushSize_Default() {
     TDecreaseBrushSize(0.5f);
 }
 
-void IncreaseBrushSize(float sizeRatio) {
-    TIncreaseBrushSize(sizeRatio);
+void IncreaseBrushSize(float sizeIncrement) {
+    TIncreaseBrushSize(sizeIncrement);
 }
-void DecreaseBrushSize(float sizeRatio) {
-    TDecreaseBrushSize(sizeRatio);
+void DecreaseBrushSize(float sizeIncrement) {
+    TDecreaseBrushSize(sizeIncrement);
 }
 
 /* LAYERS */
 
 void AddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame = -1) {
     TAddLayer(fromFile, currentLayer, currentFrame);
+}
+
+void ShowCurrentLayerOnly() {
+    TShowCurrentLayerOnly();
+    TRenderLayers();
 }
 
 int LayersCount() {
@@ -476,6 +502,6 @@ void OnScrollWheelLayers(int wParam) {
     HOnScrollWheelLayers(wParam);
 }
 
-void OnScrollWheelReplay(int wParam) {
+void OnScrollWheelTimeline(int wParam) {
     HOnScrollWheelTimeline(wParam);
 }

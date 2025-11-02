@@ -162,7 +162,7 @@ HRESULT TInitializeTools(HWND hWnd) {
     return S_OK;
 }
 
-HRESULT TInitializeReplay(HWND hWnd) {
+HRESULT TInitializeTimeline(HWND hWnd) {
     timelineHWND = hWnd;
 
     return S_OK;

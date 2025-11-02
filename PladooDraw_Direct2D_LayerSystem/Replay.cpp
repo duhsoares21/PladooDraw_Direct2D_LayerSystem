@@ -120,6 +120,7 @@ void TReplayRender() {
                  it->value().LayerID,
                  it->value().FrameIndex,
                  it->value().isActive,
+                 it->value().isVisible,
                  targetBitmap
             });
         }

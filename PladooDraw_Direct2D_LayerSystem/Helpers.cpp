@@ -46,6 +46,8 @@ int HGetMaxFrameIndex() {
 
 void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext, D2D1_COLOR_F customColor = COLOR_UNDEFINED) {
 
+    std::cout << action.FillColor << std::endl;
+
     D2D1_COLOR_F color = HGetRGBColor(action.Color);
 
     if (customColor.r != COLOR_UNDEFINED.r ||
@@ -53,11 +55,9 @@ void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceConte
         customColor.b != COLOR_UNDEFINED.b ||
         customColor.a != COLOR_UNDEFINED.a){
         color = customColor;
-
-        std::cout << "CUSTOM COLOR" << "\n";
     }
 
-    if (action.Tool == TPaintBucket) {
+    if (action.Tool == TPaintBucket || action.IsFilled) {
         color = HGetRGBColor(action.FillColor);
     }
 
@@ -142,9 +142,19 @@ void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceConte
     }
 
     case TPaintBucket: {
-        for (const auto& p : action.pixelsToFill) {
-            D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
-            deviceContext->FillRectangle(&rect, replayBrush.Get());
+        if (action.PaintTarget > 0) {
+            Actions[action.PaintTarget].IsFilled = true;
+            Actions[action.PaintTarget].FillColor = action.FillColor;
+        }
+        else {
+            deviceContext->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+            deviceContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+            for (const auto& p : action.pixelsToFill) {
+                D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
+                deviceContext->FillRectangle(&rect, replayBrush.Get());
+            }
+            deviceContext->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+            deviceContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         }
         break;
     }
@@ -668,7 +678,7 @@ void HOnScrollWheelTimeline(int wParam) {
 
     for (size_t i = 0; i < TimelineFrameButtons.size(); i++) {
         if (!TimelineFrameButtons[i].has_value()) continue;
-        int currentFrameIndex = TimelineFrameButtons[i].value().FrameIndex;
+        //int currentFrameIndex = TimelineFrameButtons[i].value().FrameIndex;
 
         int x = ((timelineParentWidth / 2) - (itemWidth / 2) + (itemWidth * index)) - g_scrollOffsetTimeline;
         int y = 10;

@@ -333,7 +333,7 @@ void LoadBinaryProject(const std::wstring& filename) {
             pRenderTarget->Clear(D2D1::ColorF(1, 1, 1, 0));
             pRenderTarget->EndDraw();
 
-            Layer layer = { tempLayers[i].value().LayerID, tempLayers[i].value().FrameIndex, true, pBitmap};
+            Layer layer = { tempLayers[i].value().LayerID, tempLayers[i].value().FrameIndex, true, true, pBitmap };
             layers.emplace_back(layer);
         }
         else

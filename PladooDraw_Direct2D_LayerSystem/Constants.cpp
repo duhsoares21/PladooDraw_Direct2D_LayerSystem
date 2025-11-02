@@ -46,6 +46,8 @@ float logicalHeight = 0.0f;
 int lastActiveReplayFrame = 0;
 int g_scrollOffsetTimeline = 0;
 
+bool hideShadow = false;
+
 D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
 D2D1_RECT_F rectangle = D2D1::RectF(0, 0, 0, 0);
 D2D1_RECT_F textArea = D2D1::RectF(0, 0, 0, 0);
@@ -99,7 +101,6 @@ Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 std::vector<LayerOrder> layersOrder;
 std::vector<Layer> layerBitmaps;
 std::vector<std::optional<Layer>> layers;
-std::vector<std::optional<Layer>> animationLayers;
 
 std::vector<ACTION> Actions;
 std::vector<ACTION> RedoActions;

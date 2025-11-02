@@ -13,6 +13,7 @@ extern void TRemoveLayerButton(int currentLayer);
 extern HRESULT TRemoveLayer(int currentLayer);
 extern int TGetLayer();
 extern void TSetLayer(int index);
+extern void TShowCurrentLayerOnly();
 extern void TReorderLayerUp();
 extern void TReorderLayerDown();
 extern void TUpdateLayers(int layerIndexTarget, int CurrentFrameIndexTarget);

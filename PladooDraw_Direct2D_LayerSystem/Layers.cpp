@@ -80,7 +80,7 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame
     }
 
     // Add to layers
-    Layer layer = { currentLayer, currentFrame, true, pBitmap };
+    Layer layer = { currentLayer, currentFrame, true, true, pBitmap };
     layers.emplace_back(layer);
 
     if (!fromFile) {
@@ -115,10 +115,10 @@ void TAddLayerButton(int LayerButtonID, bool visible = true) {
         L"",                     
         style,
         0,                           
-        0,   
-        btnWidth,                    
-        btnHeight,                   
-        layersHWND,                  
+        0,
+        btnWidth,
+        btnHeight,
+        layersHWND,
         (HMENU)(intptr_t)LayerButtonID,
         hLayerInstance,              
         NULL                         
@@ -250,6 +250,23 @@ void TSetLayer(int index) {
     TSelectedLayerHighlight(layerIndex);
 }
 
+bool isShowingCurrentLayerOnly = false;
+void TShowCurrentLayerOnly() {
+    if (isShowingCurrentLayerOnly) {
+        for (auto& layer : layers) {
+            if (!layer.has_value()) continue;
+            layer.value().isVisible = true;
+        }
+        isShowingCurrentLayerOnly = false;
+    } else {
+        for (auto& layer : layers) {
+            if (!layer.has_value()) continue;
+            layer.value().isVisible = (layer.value().LayerID == layerIndex);
+        }
+        isShowingCurrentLayerOnly = true;
+    }
+}
+
 void TReorderLayerUp() {
     if (layerIndex < 0 || layerIndex >= static_cast<int>(layersOrder.size()))
         return; // invalido
@@ -362,11 +379,11 @@ void TRenderLayers() {
         int index = lo.layerIndex;
         if (index < 0 || index >= layers.size()) continue;
         if (!layers[index].has_value()) continue;
-        if (layers[index].value().FrameIndex == CurrentFrameIndex) {
+        if (layers[index].value().FrameIndex == CurrentFrameIndex && layers[index].value().isVisible) {
             pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
         }
 
-        if (isAnimationMode && CurrentFrameIndex > 0 && !isPlayingAnimation) {
+        if (isAnimationMode && CurrentFrameIndex > 0 && layers[index].value().isVisible && !isPlayingAnimation && !hideShadow) {
             if (layers[index].value().FrameIndex == CurrentFrameIndex - 1) {
                 pRenderTarget->DrawBitmap(
                     layers[index].value().pBitmap.Get(),
