@@ -8,10 +8,10 @@ void TCreateReplayFrame(int FrameIndex) {
 
     HWND replayFrame = HCreateTimelineFrameButton(FrameIndex);
 
-    RenderData renderData = HCreateRenderDataHWND(replayFrame);  
+    RenderData renderData = HCreateRenderDataHWND(replayFrame);
 
     renderData.deviceContext->SetTarget(renderData.bitmap.Get());
-    
+
     TimelineFrameButtons.push_back(TimelineFrameButton{
         layerIndex,
         FrameIndex,
@@ -26,8 +26,8 @@ void TCreateReplayFrame(int FrameIndex) {
 
     float canvasW = width;
     float canvasH = height;
-    float thumbW = renderData.size.width;
-    float thumbH = renderData.size.height;
+    float thumbW = static_cast<float>(renderData.size.width);
+    float thumbH = static_cast<float>(renderData.size.height);
 
     float scale = min(thumbW / canvasW, thumbH / canvasH);
 
@@ -37,21 +37,24 @@ void TCreateReplayFrame(int FrameIndex) {
 
     std::vector<ACTION> FilteredRedoActions;
 
-    for (int i = 0; i < RedoActions.size(); i++) {
+    for (int i = 0; i < (int)RedoActions.size(); i++) {
         if (RedoActions[i].Tool == TLayer) continue;
         FilteredRedoActions.push_back(RedoActions[i]);
     }
 
     int total = static_cast<int>(FilteredRedoActions.size());
 
+    // Cada botão representa um ACTION inteiro (não steps)
     for (int i = 0; i < FrameIndex && i < total; i++) {
         int idx = total - 1 - i;
         HRenderAction(FilteredRedoActions[idx], renderData.deviceContext, COLOR_UNDEFINED);
     }
-        
+
     renderData.deviceContext->EndDraw();
 
-    renderData.swapChain->Present(1, 0);
+    if (renderData.swapChain) {
+        renderData.swapChain->Present(1, 0);
+    }
 }
 
 void TReplayClearLayers() {
@@ -66,64 +69,11 @@ void TReplayClearLayers() {
 }
 
 void TReplayRender() {
-
-    std::vector<LayerOrder> sortedLayers = layersOrder;
-    std::sort(sortedLayers.begin(), sortedLayers.end(),
-    [](const LayerOrder& a, const LayerOrder& b) {
-        return a.layerOrder < b.layerOrder; // higher order drawn first
-    });
-
     Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
     HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(IDXGISurface), &backBuffer);
     if (FAILED(hr)) {
         OutputDebugStringW((L"TRenderLayers: Failed to get backbuffer, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
         return;
-    }
-
-    for (auto it = layers.begin(); it != layers.end(); ++it) {
-
-        if (layerBitmaps.size() > 0) {
-            if (it->has_value()) {
-                const auto targetLayerID = it->value().LayerID;
-
-                auto layer = std::find_if(
-                    layerBitmaps.begin(),
-                    layerBitmaps.end(),
-                    [&](const Layer& l) {
-                        return l.LayerID == targetLayerID;
-                    }
-                );
-
-                if (layer != layerBitmaps.end()) {
-                    continue;
-                }
-            }
-        }
-
-        Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
-        D2D1_BITMAP_PROPERTIES1 targetBitmapProps = D2D1::BitmapProperties1(
-            D2D1_BITMAP_OPTIONS_TARGET,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-            dpiX, dpiY
-        );
-
-        D2D1_SIZE_U size = D2D1::SizeU(logicalWidth, logicalHeight);
-        HRESULT hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &targetBitmapProps, &targetBitmap);
-
-        if (SUCCEEDED(hr)) {
-            pRenderTarget->BeginDraw();
-            pRenderTarget->SetTarget(targetBitmap.Get());
-            pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
-            pRenderTarget->EndDraw();
-
-            layerBitmaps.push_back(Layer{
-                 it->value().LayerID,
-                 it->value().FrameIndex,
-                 it->value().isActive,
-                 it->value().isVisible,
-                 targetBitmap
-            });
-        }
     }
 
     // Get DPI from pRenderTarget
@@ -137,22 +87,12 @@ void TReplayRender() {
         dpiX, dpiY
     );
 
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
     hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.ReleaseAndGetAddressOf());
-
     if (FAILED(hr)) {
         OutputDebugStringW((L"TRenderLayers: Failed to create bitmap from DXGI surface, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
         return;
     }
-
-    pRenderTarget->BeginDraw();
-
-    for (int j = 0; j <= Actions.size() && j < Actions.size(); j++) {
-        pRenderTarget->SetTarget(layerBitmaps[Actions[j].Layer].pBitmap.Get());
-        
-        (Actions[j], pRenderTarget, COLOR_UNDEFINED);
-    }
-
-    pRenderTarget->EndDraw();
 
     pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
 
@@ -160,17 +100,13 @@ void TReplayRender() {
     pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
     pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
 
-    for (const auto& lo : sortedLayers) {
-        int index = lo.layerIndex;
-        if (index < 0 || index >= layers.size()) continue;
-        if (layerBitmaps[index].isActive) {
-            pRenderTarget->DrawBitmap(layerBitmaps[index].pBitmap.Get());
-        }
+    for (int j = 0; j < (int)Actions.size(); j++) {
+        HRenderAction(Actions[j], pRenderTarget, COLOR_UNDEFINED);
     }
 
     pRenderTarget->EndDraw();
 
-    g_pSwapChain->Present(1, 0);
+    g_pSwapChain->Present(0, 0);
 }
 
 void TEditFromThisPoint() {
@@ -185,11 +121,12 @@ void TEditFromThisPoint() {
     if (clicked == IDYES) {
         int ActionIndex = lastActiveReplayFrame;
 
-        if (ActionIndex < Actions.size()) {
+        if (ActionIndex < (int)Actions.size()) {
             Actions.erase(Actions.begin() + ActionIndex + 1, Actions.end());
         }
 
         RedoActions.clear();
+        replayPartialStepCount = 0;
     }
     else
     {
@@ -203,25 +140,71 @@ void TEditFromThisPoint() {
 }
 
 void TReplayBackwards() {
-    if (Actions.size() > 0) {
-        ACTION lastAction = Actions.back();
-        RedoActions.push_back(lastAction);
-        Actions.pop_back();
+    if (!RedoActions.empty() && replayPartialStepCount > 0) {
+        ACTION& pendingAction = RedoActions.back();
+        if (replayPartialStepCount > 1) {
+            replayPartialStepCount--;
+            Actions.back() = MakeStepAction(pendingAction, replayPartialStepCount);
+        }
+        else {
+            // Volta do primeiro step para "nenhum step" desta action.
+            Actions.pop_back();
+            replayPartialStepCount = 0;
+        }
 
-        lastActiveReplayFrame--;
-        HOnScrollWheelTimeline(1);
+        TReplayRender();
+        return;
+    }
+
+    if (!Actions.empty()) {
+        // Remove a última action completa e coloca novamente no topo do redo.
+        ACTION lastAction = Actions.back();
+        Actions.pop_back();
+        RedoActions.push_back(lastAction);
+
+        int totalSteps = GetActionStepCount(lastAction);
+
+        if (lastActiveReplayFrame > 0) {
+            lastActiveReplayFrame--;
+            HOnScrollWheelTimeline(1);
+        }
+
+        if (totalSteps > 1) {
+            replayPartialStepCount = totalSteps - 1;
+            Actions.push_back(MakeStepAction(lastAction, replayPartialStepCount));
+        }
+        else {
+            replayPartialStepCount = 0;
+        }
+
         TReplayRender();
     }
 }
 
 void TReplayForward() {
-    if (RedoActions.size() > 0) {
-        ACTION action = RedoActions.back();
-        Actions.push_back(action);
-        RedoActions.pop_back();
+    if (!RedoActions.empty()) {
+        ACTION& pendingAction = RedoActions.back();
+        int totalSteps = GetActionStepCount(pendingAction);
 
-        lastActiveReplayFrame++;
-        HOnScrollWheelTimeline(-1);
+        if (replayPartialStepCount == 0) {
+            replayPartialStepCount = 1;
+            Actions.push_back(MakeStepAction(pendingAction, replayPartialStepCount));
+        }
+        else {
+            replayPartialStepCount++;
+            Actions.back() = MakeStepAction(pendingAction, replayPartialStepCount);
+        }
+
+        if (replayPartialStepCount >= totalSteps) {
+            replayPartialStepCount = 0;
+            RedoActions.pop_back();
+
+            if (lastActiveReplayFrame < (int)TimelineFrameButtons.size() - 1) {
+                lastActiveReplayFrame++;
+            }
+            HOnScrollWheelTimeline(-1);
+        }
+
         TReplayRender();
     }
 }

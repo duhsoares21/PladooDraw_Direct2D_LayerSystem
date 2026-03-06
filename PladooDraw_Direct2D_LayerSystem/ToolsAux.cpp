@@ -1,12 +1,5 @@
-#include "pch.h"
-#include "Base.h"
-#include "Constants.h"
-#include "Helpers.h"
-#include "Layers.h"
-#include "Tools.h"
-#include "Replay.h"
-#include "Animation.h"
-
+#include "ToolsAux.h"
+#include "Actions.h"
 /* TOOLS AUX */
 
 void THandleMouseUp() {
@@ -27,7 +20,6 @@ void THandleMouseUp() {
 
         pRenderTarget->SetTarget(it->value().pBitmap.Get());
         pRenderTarget->BeginDraw();
-        pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
         ACTION action;
 
@@ -36,6 +28,9 @@ void THandleMouseUp() {
             pRenderTarget->FillRectangle(rectangle, brush.Get());
             pRenderTarget->PopAxisAlignedClip();
 
+            actionId++;
+
+			action.Id = actionId;
             action.Tool = TRectangle;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
@@ -44,12 +39,14 @@ void THandleMouseUp() {
             action.IsFilled = false;
 
             rectangle = D2D1::RectF(0, 0, 0, 0);
-            //isDrawingRectangle = false;
         }
 
         if (isDrawingEllipse) {
             pRenderTarget->FillEllipse(ellipse, brush.Get());
 
+            actionId++;
+
+			action.Id = actionId;
             action.Tool = TEllipse;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
@@ -59,12 +56,14 @@ void THandleMouseUp() {
             action.IsFilled = false;
 
             ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
-            //isDrawingEllipse = false;
         }
 
         if (isDrawingLine) {
             pRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), currentBrushSize, nullptr);
 
+            actionId++;
+
+			action.Id = actionId;
             action.Tool = TLine;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
@@ -72,8 +71,6 @@ void THandleMouseUp() {
             action.Color = currentColor;
             action.BrushSize = currentBrushSize;
             action.IsFilled = false;
-
-            //isDrawingLine = false;
         }
 
         if (isDrawingWindowText) {
@@ -98,8 +95,8 @@ void THandleMouseUp() {
 
         if (isDrawingRectangle || isDrawingEllipse || isDrawingLine) {
             layersOrder.pop_back();
-            if (layers[TLayersCount() - 1].has_value()) {
-                layers[TLayersCount() - 1].reset();
+            if (layers[TLayersCount()].has_value()) {
+                layers[TLayersCount()].reset();
             }
             layers.pop_back();
             Actions.pop_back();
@@ -110,11 +107,18 @@ void THandleMouseUp() {
         }
 
         Actions.push_back(action);
+
+        ActionsClass actionsClass;
+        actionsClass.TCreateMoveAction(action.Id, action);
+
         action = ACTION();
     }
 
     if (isDrawingBrush) {
+        actionId++;
+
         ACTION action;
+		action.Id = actionId;
         action.Tool = TBrush;
         action.Layer = layerIndex;
         action.FrameIndex = CurrentFrameIndex;
@@ -125,6 +129,9 @@ void THandleMouseUp() {
         action.IsFilled = false;
         action.isPixelMode = isPixelMode;
         Actions.push_back(action);
+
+        ActionsClass actionsClass;
+        actionsClass.TCreateMoveAction(action.Id, action);
 
         Vertices.clear();
 
@@ -140,15 +147,44 @@ void THandleMouseUp() {
     prevLeft = -1;
     prevTop = -1;
 
-    if (selectedAction) {
+    /*if (selectedAction) {
+        //AQUI EU VOU ARMAZENAR A AÇÃO DO TIPO TPosition em UNDO(ACTIONS) contendo SelectedInitialPosition
         TUnSelectTool();
-    }
+    }*/
     
     TUpdateLayers(layerIndex, CurrentFrameIndex);
-    
-    TUpdateAnimation();
-    
+
+    if (isAnimationMode)
+    {
+        TUpdateAnimation();
+    }
+
     TRenderLayers();
+}
+
+void TUpdatePaint(float deltaX, float deltaY) {
+    bool hasPaintActive = false;
+
+    for (auto& action : Actions) {
+        if (action.PaintTarget == selectedActionId) {
+            hasPaintActive = true;
+            for (auto& pixel : action.pixelsToFill) {
+                pixel.x += deltaX;
+                pixel.y += deltaY;
+            }
+        }
+    }
+
+    if (!hasPaintActive) {
+        for (auto& action : RedoActions) {
+            if (action.PaintTarget == selectedActionId) {
+                for (auto& pixel : action.pixelsToFill) {
+                    pixel.x += deltaX;
+                    pixel.y += deltaY;
+                }
+            }
+        }
+    }
 }
 
 void TUndo() {
@@ -162,21 +198,101 @@ void TUndo() {
     );
 
     if (it != Actions.rend()) {
-        // converter iterator reverso para iterator normal para erase
-        auto normalIt = std::prev(it.base());
+        if (it->Tool == TMove) {
+            //Encontra o LastMovedPosition=true, muda-o para false e move-o para RedoActions
+            //Itera o Actions e altera o último LastMovedPosition=false para true
 
-        RedoActions.push_back(*normalIt);
-        Actions.erase(normalIt);
+            int targetId = it->TargetID;
 
-        // TLayer check
-        ACTION& lastAction = RedoActions.back();
-        if (lastAction.Tool == TLayer && !isAnimationMode) {
-            if (layers[lastAction.Layer].has_value()) {
-                lastAction.isLayerVisible = 0;
-                layers[lastAction.Layer].value().isActive = false;
-                ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_HIDE);
+            auto originalIt = std::find_if(
+                Actions.rbegin(),
+                Actions.rend(),
+                [targetId](const ACTION& act) {
+                    return act.TargetID == targetId && act.LastMovedPosition == true;
+                }
+            );
+
+            if (originalIt != Actions.rend()) {
+                // Move a ação original para RedoActions
+				originalIt->LastMovedPosition = false;
+                RedoActions.push_back(*originalIt);
+                Actions.erase(std::prev(originalIt.base()));
+            }
+
+            auto NewIt = std::find_if(
+                Actions.rbegin(),
+                Actions.rend(),
+                [targetId](const ACTION& act) {
+                    return act.TargetID == targetId && act.LastMovedPosition == false;
+                }
+            );
+
+            if (NewIt != Actions.rend()) {
+                NewIt->LastMovedPosition = true;
+                
+                auto TMoveIT = std::find_if(
+                    Actions.begin(),
+                    Actions.end(),
+                    [&](const ACTION& action) {
+                        return action.Tool == TMove && action.TargetID == selectedActionId && action.LastMovedPosition == true;
+                    }
+                );
+
+                //DELTA delta = CalculateMovementDelta(NewIt->Position.left, NewIt->Position.top, &(*NewIt), &(*TMoveIT));
+                //TUpdatePaint(delta.deltaX, delta.deltaY);
+
+				bool hasPaintActive = false;
+
+                for (auto& action : Actions) {
+                    if (action.PaintTarget == selectedActionId) {
+                        hasPaintActive = true;
+                        for (auto& pixel : action.pixelsToFill) {
+
+                            float deltaX = TMoveIT->Position.left - pixel.x;
+                            float deltaY = TMoveIT->Position.top - pixel.y;
+
+                            pixel.x += deltaX;
+                            pixel.y += deltaY;
+                        }
+                    }
+                }
+
+                if (!hasPaintActive) {
+                    for (auto& action : RedoActions) {
+                        if (action.PaintTarget == selectedActionId) {
+                            for (auto& pixel : action.pixelsToFill) {
+                                float deltaX = TMoveIT->Position.left - pixel.x;
+                                float deltaY = TMoveIT->Position.top - pixel.y;
+
+                                pixel.x += deltaX;
+                                pixel.y += deltaY;
+                            }
+                        }
+                    }
+                }
+
+                HRenderAction(*NewIt, pRenderTarget, COLOR_UNDEFINED);
             }
         }
+        else {
+            // converter iterator reverso para iterator normal para erase
+            auto normalIt = std::prev(it.base());
+
+            RedoActions.push_back(*normalIt);
+            Actions.erase(normalIt);
+
+            // TLayer check
+            ACTION& lastAction = RedoActions.back();
+
+
+            if (lastAction.Tool == TLayer && !isAnimationMode) {
+                if (layers[lastAction.Layer].has_value()) {
+                    lastAction.isLayerVisible = 0;
+                    layers[lastAction.Layer].value().isActive = false;
+                    ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_HIDE);
+                }
+            }
+        }        
     }
 
     for (size_t i = 0; i < layers.size(); i++)
@@ -186,6 +302,7 @@ void TUndo() {
     }
 
     TRenderLayers();
+
     if (isAnimationMode) {
         TUpdateAnimation();
         TRenderAnimation();
@@ -194,20 +311,61 @@ void TUndo() {
 
 void TRedo() {
     if (RedoActions.empty()) return; // nada a refazer
-
-    // Pega a �ltima a��o adicionada ao RedoActions (LIFO)
+                
+    // Pega a última ação adicionada ao RedoActions (LIFO)
     ACTION lastAction = RedoActions.back();
-    RedoActions.pop_back(); // remove do redo
 
-    // Adiciona novamente ao Actions
-    Actions.push_back(lastAction);
+    if (lastAction.Tool == TMove) {
+        int targetId = lastAction.TargetID;
 
-    // Se for TLayer, reativa o layer
-    if (lastAction.Tool == TLayer && !isAnimationMode) {
-        if (layers[lastAction.Layer].has_value()) {
-            lastAction.isLayerVisible = 1;
-            layers[lastAction.Layer].value().isActive = true;
-            ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_SHOW);
+        // 1. No Actions: encontra o último LastMovedPosition=true e muda para false
+        auto oldTrueIt = std::find_if(
+            Actions.rbegin(),
+            Actions.rend(),
+            [targetId](const ACTION& act) {
+                return act.TargetID == targetId && act.LastMovedPosition == true;
+            }
+        );
+
+        if (oldTrueIt != Actions.rend()) {
+            oldTrueIt->LastMovedPosition = false;
+        }
+
+        // 2. No RedoActions: encontra o último LastMovedPosition=false
+        auto redoIt = std::find_if(
+            RedoActions.rbegin(),
+            RedoActions.rend(),
+            [targetId](const ACTION& act) {
+                return act.TargetID == targetId && act.LastMovedPosition == false;
+            }
+        );
+
+        if (redoIt != RedoActions.rend()) {
+            // Atualiza para true
+            redoIt->LastMovedPosition = true;
+			HRenderAction(*redoIt, pRenderTarget, COLOR_UNDEFINED);
+
+            // Move de volta para Actions
+            Actions.push_back(*redoIt);
+
+            // Apaga do RedoActions
+            RedoActions.erase(std::prev(redoIt.base()));
+        }
+    }
+    else {
+        RedoActions.pop_back(); // remove do redo
+
+        // Adiciona novamente ao Actions
+        Actions.push_back(lastAction);
+
+
+        // Se for TLayer, reativa o layer
+        if (lastAction.Tool == TLayer && !isAnimationMode) {
+            if (layers[lastAction.Layer].has_value()) {
+                lastAction.isLayerVisible = 1;
+                layers[lastAction.Layer].value().isActive = true;
+                ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_SHOW);
+            }
         }
     }
 
@@ -226,6 +384,72 @@ void TRedo() {
 }
 
 /* MOVE TOOL AUX */
+
+DELTA CalculateMovementDelta(int x, int y, ACTION *targetAction, ACTION *selected) {
+    // Scale coordinates
+    float scaledX = static_cast<float>(x) / zoomFactor;
+    float scaledY = static_cast<float>(y) / zoomFactor;
+
+    // Step 1: Calculate bounding box
+    float minX = FLT_MAX;
+    float minY = FLT_MAX;
+    float maxX = -FLT_MAX;
+    float maxY = -FLT_MAX;
+
+    float deltaX;
+    float deltaY;
+
+    switch (targetAction->Tool) {
+    case TBrush:
+        for (const auto& v : selected->FreeForm.vertices) {
+            minX = (std::min)(minX, v.x);
+            minY = (std::min)(minY, v.y);
+            maxX = (std::max)(maxX, v.x);
+            maxY = (std::max)(maxY, v.y);
+        }
+        break;
+    case TRectangle:
+    case TWrite:
+        minX = selected->Position.left;
+        minY = selected->Position.top;
+        maxX = selected->Position.right;
+        maxY = selected->Position.bottom;
+        break;
+
+    case TEllipse:
+        minX = selected->Ellipse.point.x;
+        minY = selected->Ellipse.point.y;
+        maxX = selected->Ellipse.point.x;
+        maxY = selected->Ellipse.point.y;
+        break;
+
+    case TLine:
+        minX = (std::min)(selected->Line.startPoint.x, selected->Line.endPoint.x);
+        minY = (std::min)(selected->Line.startPoint.y, selected->Line.endPoint.y);
+        maxX = (std::max)(selected->Line.startPoint.x, selected->Line.endPoint.x);
+        maxY = (std::max)(selected->Line.startPoint.y, selected->Line.endPoint.y);
+        break;
+
+    default:
+        break;
+    }
+
+    DELTA delta = {-1, -1};
+
+    if (minX == FLT_MAX || minY == FLT_MAX) {
+        return delta;
+    }
+
+    // Step 2: Calculate movement delta
+    float centerX = (minX + maxX) / 2.0f;
+    float centerY = (minY + maxY) / 2.0f;
+    deltaX = scaledX - centerX;
+    deltaY = scaledY - centerY;
+
+	delta = { deltaX, deltaY };
+
+	return delta;
+}
 
 bool IsPointNearSegment(float px, float py, float x1, float y1, float x2, float y2, float threshold = 3.0f) {
     // Calcula distância do ponto ao segmento
@@ -253,7 +477,7 @@ bool IsPointInsidePolygon(const std::vector<VERTICE>& vertices, float px, float 
         const auto& vj = vertices[j];
 
         bool intersect = ((vi.y > py) != (vj.y > py)) &&
-                         (px < (vj.x - vi.x) * (py - vi.y) / (vj.y - vi.y) + vi.x);
+            (px < (vj.x - vi.x) * (py - vi.y) / (vj.y - vi.y) + vi.x);
         if (intersect)
             inside = !inside;
     }
@@ -338,23 +562,63 @@ bool IsPointNearLine(const D2D1_RECT_F& lineRect, float x, float y, float tolera
     return (dx * dx + dy * dy) <= (tolerance * tolerance);
 }
 
+bool IsPointInsideText(const ACTION& action, float x, float y)
+{
+    auto pos = action.Position; // Point2F
+    float w = action.TextWidth;
+    float h = action.TextHeight;
+
+    return (x >= pos.left && x <= pos.left + w && y >= pos.top && y <= pos.top + h);
+}
+
 bool HitTestAction(const ACTION& action, float x, float y) {
     switch (action.Tool) {
-    case TBrush:
-        return IsPointNearEdgeOrInside(action.FreeForm.vertices, x, y);
+    case TBrush: {
+        // Se não houver vértices, não há hit
+        if (action.FreeForm.vertices.empty()) return false;
+
+        // Calcula bounding box do stroke
+        float minX = FLT_MAX;
+        float minY = FLT_MAX;
+        float maxX = -FLT_MAX;
+        float maxY = -FLT_MAX;
+
+        for (const auto& v : action.FreeForm.vertices) {
+            minX = (std::min)(minX, v.x);
+            minY = (std::min)(minY, v.y);
+            maxX = (std::max)(maxX, v.x);
+            maxY = (std::max)(maxY, v.y);
+        }
+
+        // Usa BrushSize salvo na action quando disponível, caso contrário usa currentBrushSize
+        float brushSize = action.BrushSize > 0 ? static_cast<float>(action.BrushSize) : currentBrushSize;
+        float brushRadius = brushSize * 0.5f;
+
+        // Margem extra para tolerância (ajuste conforme necessário)
+        const float extraTolerance = 3.0f;
+        float padding = brushRadius + extraTolerance;
+
+        // Se o ponto estiver dentro do bounding box expandido, considera hit
+        if (x >= minX - padding && x <= maxX + padding && y >= minY - padding && y <= maxY + padding) {
+            return true;
+        }
+
+        // Fallback: verifica proximidade das arestas (com threshold baseado no raio)
+        return IsPointNearEdgeOrInside(action.FreeForm.vertices, x, y, (std::max)(3.0f, brushRadius));
+    }
+
     case TRectangle:
+        return IsPointInsideRect(D2D1::RectF(action.Position.left, action.Position.top, action.Position.right, action.Position.bottom), x, y);
     case TWrite:
-        return IsPointInsideRect(action.Position, x, y);
+        return IsPointInsideText(action, x, y);
     case TEllipse:
-        return IsPointInsideEllipse(action.Ellipse, x, y);
+        return IsPointInsideEllipse(D2D1::Ellipse(D2D1::Point2F(action.Ellipse.point.x, action.Ellipse.point.y), action.Ellipse.radiusX, action.Ellipse.radiusY), x, y);
     case TLine:
-        return IsPointNearLine(action.Position, x, y, 5.0f); // 5 px tolerance
+        return IsPointNearLine(D2D1::RectF(action.Position.left, action.Position.top, action.Position.right, action.Position.bottom), x, y, 5.0f); // 5 px tolerance
     default:
         return false;
     }
 }
-
-/*FLOODFILL AUX*/
 
 std::vector<COLORREF> CaptureCanvasPixels() {
     // Validate render target and dimensions
@@ -455,4 +719,92 @@ std::vector<COLORREF> CaptureCanvasPixels() {
     OutputDebugStringW((L"CaptureCanvasPixels: Captured " + std::to_wstring(logicalWidth) + L"x" +
         std::to_wstring(logicalHeight) + L" pixels\n").c_str());
     return pixels;
+}
+
+void AuxCopyAction() {
+    auto it = std::find_if(
+        Actions.begin(),
+        Actions.end(),
+        [](const ACTION& action) {
+            return action.Id == selectedActionId;
+        }
+    );
+
+    if (it != Actions.end()) {
+        Clipboard = *it; // cópia real, não referência
+    }
+}
+
+void AuxPasteAction() {
+	Clipboard.Id = ++actionId;
+	Clipboard.Layer = layerIndex;
+	Clipboard.FrameIndex = CurrentFrameIndex;
+
+    Actions.push_back(Clipboard);
+
+    std::vector<ACTION> paintActions;
+
+    for (auto& action : Actions) {
+        if (action.PaintTarget == selectedActionId) {
+            paintActions.push_back(action);
+        }
+    }
+
+    if (paintActions.size() > 0) {
+        for (auto& paintAction : paintActions) {
+            paintAction.PaintTarget = Actions.size() - 1;
+
+            Actions.push_back(paintAction);
+        }
+    }
+
+    for (size_t i = 0; i < layers.size(); ++i) {
+        if (!layers[i].has_value()) continue;
+        TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
+    }
+
+    TRenderLayers();
+}
+
+void AuxDeleteAction() {
+    auto it = std::find_if(
+        Actions.begin(),
+        Actions.end(),
+        [&](const ACTION& act) {
+            return act.Id == selectedActionId;
+        }
+    );
+
+    if (it != Actions.end()) {
+        Actions.erase(it);
+    }
+
+    std::vector<ACTION> paintActions;
+
+    for (auto& action : Actions) {
+        if (action.PaintTarget == selectedActionId) {
+            paintActions.push_back(action);
+        }
+    }
+
+    if (paintActions.size() > 0) {
+        for (auto& paintAction : paintActions) {
+            Actions.erase(
+                std::remove_if(
+                    Actions.begin(),
+                    Actions.end(),
+                    [&](const ACTION& act) {
+                        return act.Id == paintAction.Id;
+                    }
+                ),
+                Actions.end()
+			);
+        }
+    }
+
+    selectedIndex = -1;
+    selectedActionId = -1;
+
+	TUpdateLayers(layerIndex, CurrentFrameIndex);
+	TRenderLayers();
 }

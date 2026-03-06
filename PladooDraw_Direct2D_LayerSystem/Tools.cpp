@@ -7,10 +7,13 @@
 #include "ToolsAux.h"
 #include "Layers.h"
 #include "Main.h"
+#include "Actions.h"
 
 /* TOOLS */
 
 void TEraserTool(int left, int top) {
+
+	RedoActions.clear();
 
     auto it = std::find_if(
         layers.begin(),
@@ -89,8 +92,11 @@ void TEraserTool(int left, int top) {
 
     if (scaledLeft != prevLeft || scaledTop != prevTop) {
         if (scaledLeft != -1 && scaledTop != -1) {
+            actionId++;
+
             ACTION action;
-            action.Tool = 0;
+            action.Id = actionId;
+            action.Tool = TEraser;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
             action.Position = rect;
@@ -107,6 +113,7 @@ void TEraserTool(int left, int top) {
 }
 
 void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixelSizeRatio) {
+    RedoActions.clear();
 
     auto it = std::find_if(
         layers.begin(),
@@ -115,6 +122,8 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
             return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
         }
     );
+
+    if (it == layers.end()) return;
 
     if (!it->has_value()) return;
 
@@ -230,6 +239,8 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
 }
 
 void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexColor) {
+    RedoActions.clear();
+
     if (!layers[layerIndex].has_value()) return;
 
     if (pBrush == nullptr) {
@@ -275,6 +286,8 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
 }
 
 void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColor) {
+    RedoActions.clear();
+
     if (!layers[layerIndex].has_value()) return;
 
     if (pBrush == nullptr) {
@@ -329,6 +342,8 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
 }
 
 void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) {
+    RedoActions.clear();
+
     if (!layers[layerIndex].has_value()) return;
 
     if (pBrush == nullptr) {
@@ -379,6 +394,8 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 }
 
 void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
+    
+    RedoActions.clear();
 
     auto it = std::find_if(
         layers.begin(),
@@ -388,6 +405,7 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
         }
     );
 
+    if (it == layers.end()) return;
     if (!it->has_value()) return;
 
     RECT rc;
@@ -471,15 +489,18 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
 
     // 6) Salva ACTION
 
-    int paintTargetIndex = -1;
+    int paintTargetID = -1;
 
     for (size_t i = 0; i < Actions.size(); ++i) {
         if (HitTestAction(Actions[i], mouseX, mouseY)) {
-            paintTargetIndex = i;
+            paintTargetID = Actions[i].Id;
         }
     }
 
     ACTION action;
+    actionId++;
+
+	action.Id = actionId;
     action.Tool = TPaintBucket;
     action.Layer = layerIndex;
     action.FrameIndex = CurrentFrameIndex;
@@ -487,13 +508,15 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     action.mouseX = startX;
     action.mouseY = startY;
     action.pixelsToFill = std::move(pixelsToFill);
-    action.PaintTarget = paintTargetIndex;
+    action.PaintTarget = paintTargetID;
     Actions.emplace_back(std::move(action));
 
     TRenderLayers();
 }
 
 void TInitTextTool(float scaledLeft, float scaledTop, float width, float height) {
+    RedoActions.clear();
+
     if (isWritingText) return;
     HINSTANCE hInstance = GetModuleHandle(NULL);
 
@@ -563,7 +586,7 @@ void TWriteToolCommitText() {
     // Draw the text onto the layer bitmap
     pRenderTarget->SetTarget(it->value().pBitmap.Get());
     pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    //pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
 
     if (pBrush) {
         pBrush->SetColor(HGetRGBColor(fontColor));
@@ -606,8 +629,11 @@ void TWriteToolCommitText() {
         pBrush.Get()
     );
 
+    DWRITE_TEXT_METRICS metrics{};
+    textLayout->GetMetrics(&metrics);
+
     pRenderTarget->EndDraw();
-    
+
     isWritingText = false;
 
     DestroyWindow(hTextInput);
@@ -618,10 +644,15 @@ void TWriteToolCommitText() {
 
     SetFocus(docHWND);
 
+    actionId++;
+
     ACTION action;
 
+	action.Id = actionId;
     action.Tool = TWrite;
     action.Text = text;
+    action.TextWidth = metrics.width;
+    action.TextHeight = metrics.height;
     action.Layer = layerIndex;
     action.FrameIndex = CurrentFrameIndex;
     action.Position = textArea;
@@ -635,33 +666,50 @@ void TWriteToolCommitText() {
     action.FontStrike = (fontStrike != 0);
 
     Actions.push_back(action);
+
+    ActionsClass actionsClass;
+    actionsClass.TCreateMoveAction(action.Id, action);
 }
 
 void __stdcall TSelectTool(int xInitial, int yInitial) {
-    if (selectedAction) return;
-
     // Scale coordinates
     float scaledXInitial = static_cast<float>(xInitial) / zoomFactor;
     float scaledYInitial = static_cast<float>(yInitial) / zoomFactor;
 
-    for (int i = Actions.size() - 1; i >= 0; --i) {
+    int foundIndex = -1;
 
+    for (int i = (int)Actions.size() - 1; i >= 0; --i) {
         const ACTION& Action = Actions[i];
 
         if (Action.Layer != layerIndex) continue;
 
         if (HitTestAction(Action, scaledXInitial, scaledYInitial)) {
-            selectedIndex = i;
-            selectedAction = true;
+            foundIndex = i;
             break;
         }
     }
 
-    if (selectedAction == false) return;
+    if (foundIndex == -1) {
+        // Clique em área vazia -> desseleciona
+        if (selectedAction) {
+            TUnSelectTool();
+        }
+        return;
+    }
+
+    // Se já está selecionada a mesma ação, não faz nada
+    if (selectedAction && selectedIndex == foundIndex) return;
+
+    // Seleciona a ação encontrada
+    selectedIndex = foundIndex;
+    selectedActionId = Actions[foundIndex].Id;
+    selectedAction = true;
+
+    TRenderLayers();
 }
 
 void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
-    if (layerIndex < 0 || selectedIndex < 0 || selectedIndex >= Actions.size()) {
+    if (layerIndex < 0 || selectedIndex < 0 || selectedIndex >= (int)Actions.size()) {
         return;
     }
 
@@ -679,16 +727,13 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
     float maxX = -FLT_MAX;
     float maxY = -FLT_MAX;
 
-    float deltaX;
-    float deltaY;
-
     if (selected.Tool == TBrush) {
         for (auto action = Actions.begin(); action != Actions.end(); ++action) {
             if (action->Layer != layerIndex || action->Tool != TBrush) continue;
 
             size_t index = std::distance(Actions.begin(), action);
 
-            if (index != selectedIndex) continue;
+            if ((int)index != selectedIndex) continue;
 
             for (const auto& v : action->FreeForm.vertices) {
                 minX = (std::min)(minX, v.x);
@@ -731,73 +776,84 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
         return;
     }
 
-    // Step 2: Calculate movement delta
+    // Step 2: Calculate movement delta (center-based, como antes)
     float centerX = (minX + maxX) / 2.0f;
     float centerY = (minY + maxY) / 2.0f;
-    deltaX = scaledX - centerX;
-    deltaY = scaledY - centerY;
+    float deltaX = scaledX - centerX;
+    float deltaY = scaledY - centerY;
 
-    // Step 3: Apply movement
-    if (selected.Tool == TBrush) {
-        for (auto action = Actions.begin(); action != Actions.end(); ++action) {
-            if (action->Layer != layerIndex || action->Tool != TBrush) continue;
+    // --- Nova parte: criar ACTION do tipo TMove (não alterar a ação original) ---
+    ACTION moveAction;
+    actionId++;
 
-            size_t index = std::distance(Actions.begin(), action);
+    moveAction.Id = actionId;
+    moveAction.Tool = TMove;
+    moveAction.TargetID = selected.Id;
+    moveAction.Layer = layerIndex;
+    moveAction.FrameIndex = CurrentFrameIndex;
+    moveAction.LastMovedPosition = true;
 
-            if (index != selectedIndex) continue;
-
-            for (auto& v : action->FreeForm.vertices) {
-                v.x += deltaX;
-                v.y += deltaY;
-            }
+    switch (selected.Tool) {
+    case TBrush:
+        moveAction.FreeForm = selected.FreeForm;
+        for (auto& v : moveAction.FreeForm.vertices) {
+            v.x += deltaX;
+            v.y += deltaY;
         }
-    }
-    else {
-        ACTION& action = Actions[selectedIndex];
+        break;
 
-        switch (action.Tool) {
-        case TRectangle:
-        case TWrite:
-            action.Position.left += deltaX;
-            action.Position.top += deltaY;
-            action.Position.right += deltaX;
-            action.Position.bottom += deltaY;
-            break;
+    case TRectangle:
+    case TWrite:
+        moveAction.Position = selected.Position;
+        moveAction.Position.left += deltaX;
+        moveAction.Position.right += deltaX;
+        moveAction.Position.top += deltaY;
+        moveAction.Position.bottom += deltaY;
+        break;
 
-        case TEllipse:
-            action.Ellipse.point.x += deltaX;
-            action.Ellipse.point.y += deltaY;
-            break;
+    case TEllipse:
+        moveAction.Ellipse = selected.Ellipse;
+        moveAction.Ellipse.point.x += deltaX;
+        moveAction.Ellipse.point.y += deltaY;
+        break;
 
-        case TLine:
-            action.Line.startPoint.x += deltaX;
-            action.Line.startPoint.y += deltaY;
-            action.Line.endPoint.x += deltaX;
-            action.Line.endPoint.y += deltaY;
-            break;
+    case TLine:
+        moveAction.Line = selected.Line;
+        moveAction.Line.startPoint.x += deltaX;
+        moveAction.Line.startPoint.y += deltaY;
+        moveAction.Line.endPoint.x += deltaX;
+        moveAction.Line.endPoint.y += deltaY;
+        break;
 
-        default:
-            break;
-        }
-    }
-
-    auto it = std::find_if(Actions.begin(), Actions.end(),
-    [](ACTION& action) {
-        return action.PaintTarget == selectedIndex;
-    });
-
-    if (it != Actions.end()) {
-        for (auto& pixel : it->pixelsToFill) {
-            pixel.x += deltaX;
-            pixel.y += deltaY;
-        }
+    default:
+        // tipo não suportado para mover
+        return;
     }
 
+    // Marca como LastMovedPosition=false quaisquer TMove existentes para este TargetID
+    for (auto& a : Actions) {
+        if (a.Tool == TMove && a.TargetID == selected.Id && a.LastMovedPosition) {
+            a.LastMovedPosition = false;
+        }
+    }
+
+    // Insere a nova ação TMove (para o mecanismo de undo/redo funcionar)
+    Actions.push_back(moveAction);
+
+    // Atualiza ações de paint vinculadas (se houver)
+    selectedActionId = selected.Id; // garantir que TUpdatePaint use o id correto
+    TUpdatePaint(deltaX, deltaY);
+
+    // Mantém comportamento visual imediato: atualiza layers/render
     TUpdateLayers(layerIndex, CurrentFrameIndex);
+    TRenderLayers();
 }
 
 void __stdcall TUnSelectTool() {
+    selectedActionId = -1;
+    selectedIndex = -1;
     selectedAction = false;
+    isMovingAction = false;
     TRenderLayers();
 }
 

@@ -70,6 +70,24 @@ void SaveBinaryProject(const std::wstring& filename) {
     int actionCount = static_cast<int>(Actions.size());
     out.write((char*)&actionCount, sizeof(actionCount));
     for (const auto& a : Actions) {
+        out.write((char*)&a.Id, sizeof(a.Id));
+        out.write((char*)&a.TargetID, sizeof(a.TargetID));
+        out.write((char*)&a.LastMovedPosition, sizeof(a.LastMovedPosition));
+        out.write((char*)&a.PaintTarget, sizeof(a.PaintTarget));
+
+        // LOCATION
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.location.x), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.location.y), sizeof(float));
+
+        // ROTATION
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.rotation.angle), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.rotation.centerX), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.rotation.centerY), sizeof(float));
+
+        // SCALE
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.scale.x), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&a.TransformProperties.scale.y), sizeof(float));
+
         out.write((char*)&a.Tool, sizeof(a.Tool));
         out.write((char*)&a.Layer, sizeof(a.Layer));
         out.write((char*)&a.FrameIndex, sizeof(a.FrameIndex));
@@ -213,6 +231,24 @@ void LoadBinaryProject(const std::wstring& filename) {
         ACTION a = {};
         int vertexCount = 0, pixelCount = 0;
 
+        in.read((char*)&a.Id, sizeof(a.Id));
+        in.read((char*)&a.TargetID, sizeof(a.TargetID));
+        in.read((char*)&a.LastMovedPosition, sizeof(a.LastMovedPosition));
+        in.read((char*)&a.PaintTarget, sizeof(a.PaintTarget));
+
+        // LOCATION
+        in.read((char*)&a.TransformProperties.location.x, sizeof(float));
+        in.read((char*)&a.TransformProperties.location.y, sizeof(float));
+
+        // ROTATION
+        in.read((char*)&a.TransformProperties.rotation.angle, sizeof(float));
+        in.read((char*)&a.TransformProperties.rotation.centerX, sizeof(float));
+        in.read((char*)&a.TransformProperties.rotation.centerY, sizeof(float));
+
+        // SCALE
+        in.read((char*)&a.TransformProperties.scale.x, sizeof(float));
+        in.read((char*)&a.TransformProperties.scale.y, sizeof(float));
+
         in.read((char*)&a.Tool, sizeof(a.Tool));
         in.read((char*)&a.Layer, sizeof(a.Layer));
         if (version == 2) {
@@ -344,23 +380,19 @@ void LoadBinaryProject(const std::wstring& filename) {
 
     InitializeLayerRenderPreview();
 
-    for (int i = 0; i < layerCount; ++i) {
-        if (layers[i].has_value()) {
-            TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
-        }
-    }
-    
-    TRenderLayers();
-
     if (isAnimationMode == 1) {
         HWND hCheck = GetDlgItem(mainHWND, 110);
         LRESULT state = SendMessage(hCheck, BM_GETCHECK, 0, 0);
         if (state == BST_UNCHECKED) {
             SendMessage(hCheck, BM_CLICK, 0, 0);
         }
-    
-        TUpdateAnimation();
-        TRenderAnimation();
     }
 
+    for (int i = 0; i < layerCount; ++i) {
+        if (layers[i].has_value()) {
+            TUpdateLayers(layers[i].value().LayerID, layers[i].value().FrameIndex);
+        }
+    }
+
+    TRenderLayers();
 }

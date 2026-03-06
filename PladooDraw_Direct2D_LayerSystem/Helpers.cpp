@@ -2,7 +2,7 @@
 #include "Constants.h"
 #include "Helpers.h"
 
-#include <Render.h>
+#include "Render.h"
 
 #include "Tools.h"
 #include "Layers.h"
@@ -42,43 +42,173 @@ int HGetMaxFrameIndex() {
     return maxFrameIndex;
 }
 
+int GetActionStepCount(const ACTION& a) {
+    switch (a.Tool) {
+    case TBrush:
+        return static_cast<int>((std::max)(size_t{ 1 }, a.FreeForm.vertices.size()));
+    case TPaintBucket: {
+        constexpr int kBucketPixelsPerStep = 128;
+        if (a.pixelsToFill.empty()) return 1;
+        return static_cast<int>((a.pixelsToFill.size() + kBucketPixelsPerStep - 1) / kBucketPixelsPerStep);
+    }
+    default:
+        return 1;
+    }
+}
+
+ACTION MakeStepAction(const ACTION& orig, int stepIndex) {
+    ACTION partial = orig;
+    int totalSteps = GetActionStepCount(orig);
+    int clampedStep = (std::max)(1, (std::min)(stepIndex, totalSteps));
+
+    switch (orig.Tool) {
+    case TBrush: {
+        size_t totalVertices = orig.FreeForm.vertices.size();
+        if (totalVertices == 0) break;
+        size_t take = (std::min)(totalVertices, static_cast<size_t>(clampedStep));
+        partial.FreeForm.vertices.assign(
+            orig.FreeForm.vertices.begin(),
+            orig.FreeForm.vertices.begin() + take
+        );
+        break;
+    }
+    case TPaintBucket: {
+        constexpr int kBucketPixelsPerStep = 128;
+        size_t totalPixels = orig.pixelsToFill.size();
+        if (totalPixels == 0) break;
+        size_t take = (std::min)(totalPixels, static_cast<size_t>(clampedStep) * static_cast<size_t>(kBucketPixelsPerStep));
+        partial.pixelsToFill.assign(
+            orig.pixelsToFill.begin(),
+            orig.pixelsToFill.begin() + take
+        );
+        break;
+    }
+    default:
+        break;
+    }
+
+    return partial;
+}
+
 /*RENDER*/
 
-void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext, D2D1_COLOR_F customColor = COLOR_UNDEFINED) {
+D2D1_RECT_F GetActionBounds(const ACTION& action)
+{
+    switch (action.Tool)
+    {
+    case TRectangle:
+    case TWrite:
+        return action.Position;
 
-    std::cout << action.FillColor << std::endl;
+    case TEllipse:
+        return D2D1::RectF(
+            action.Ellipse.point.x - action.Ellipse.radiusX,
+            action.Ellipse.point.y - action.Ellipse.radiusY,
+            action.Ellipse.point.x + action.Ellipse.radiusX,
+            action.Ellipse.point.y + action.Ellipse.radiusY
+        );
+
+    case TLine:
+        return D2D1::RectF(
+            min(action.Line.startPoint.x, action.Line.endPoint.x),
+            min(action.Line.startPoint.y, action.Line.endPoint.y),
+            max(action.Line.startPoint.x, action.Line.endPoint.x),
+            max(action.Line.startPoint.y, action.Line.endPoint.y)
+        );
+
+    case TBrush: {
+        float left = FLT_MAX, top = FLT_MAX, right = -FLT_MAX, bottom = -FLT_MAX;
+        for (const auto& v : action.FreeForm.vertices) {
+            left = min(left, v.x);
+            top = min(top, v.y);
+            right = max(right, v.x);
+            bottom = max(bottom, v.y);
+        }
+        return D2D1::RectF(left, top, right, bottom);
+    }
+
+    default:
+        return D2D1::RectF(0, 0, 0, 0);
+    }
+}
+
+void DrawResizeHandles(
+    ID2D1DeviceContext* dc,
+    const D2D1_RECT_F& r,
+    ID2D1Brush* fill,
+    ID2D1Brush* border
+)
+{
+    constexpr float HANDLE_SIZE = 6.0f;
+    constexpr float HANDLE_HALF = HANDLE_SIZE * 0.5f;
+
+    auto drawHandle = [&](float x, float y)
+        {
+            D2D1_RECT_F h = D2D1::RectF(
+                x - HANDLE_HALF,
+                y - HANDLE_HALF,
+                x + HANDLE_HALF,
+                y + HANDLE_HALF
+            );
+
+            dc->FillRectangle(h, fill);
+            dc->DrawRectangle(h, border, 1.0f);
+        };
+
+    float cx = (r.left + r.right) * 0.5f;
+    float cy = (r.top + r.bottom) * 0.5f;
+
+    drawHandle(r.left, r.top);    // TL
+    drawHandle(cx, r.top);    // TM
+    drawHandle(r.right, r.top);    // TR
+
+    drawHandle(r.left, cy);       // ML
+    drawHandle(r.right, cy);       // MR
+
+    drawHandle(r.left, r.bottom); // BL
+    drawHandle(cx, r.bottom); // BM
+    drawHandle(r.right, r.bottom); // BR
+}
+
+
+void HRenderAction(ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext, D2D1_COLOR_F customColor = COLOR_UNDEFINED) {
 
     D2D1_COLOR_F color = HGetRGBColor(action.Color);
+    D2D1_COLOR_F fillColor = HGetRGBColor(action.FillColor);
 
     if (customColor.r != COLOR_UNDEFINED.r ||
         customColor.g != COLOR_UNDEFINED.g ||
         customColor.b != COLOR_UNDEFINED.b ||
-        customColor.a != COLOR_UNDEFINED.a){
-        color = customColor;
+        customColor.a != COLOR_UNDEFINED.a) {
+        color = D2D1::ColorF(customColor.r, customColor.g, customColor.b, customColor.a);
     }
 
-    if (action.Tool == TPaintBucket || action.IsFilled) {
-        color = HGetRGBColor(action.FillColor);
-    }
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> fillBrush;
 
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> replayBrush;
-
-    if (replayBrush == nullptr) {
-        deviceContext->CreateSolidColorBrush(color, &replayBrush);
+    if (brush == nullptr) {
+        deviceContext->CreateSolidColorBrush(color, &brush);
     }
     else {
-        replayBrush->SetColor(color);
+        brush->SetColor(color);
+    }
+
+    if (fillBrush == nullptr) {
+        deviceContext->CreateSolidColorBrush(fillColor, &fillBrush);
+    }
+    else {
+        fillBrush->SetColor(fillColor);
     }
 
     if (deviceContext == pRenderTarget) {
         if (pBrush == nullptr) {
-            pRenderTarget->CreateSolidColorBrush(color, &replayBrush);
+            pRenderTarget->CreateSolidColorBrush(color, &pBrush);
         }
         else {
             pBrush->SetColor(color);
         }
 
-        replayBrush = pBrush;
+        brush = pBrush;
     }
 
     switch (action.Tool) {
@@ -90,18 +220,18 @@ void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceConte
 
     case TRectangle: {
         deviceContext->PushAxisAlignedClip(action.Position, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        deviceContext->FillRectangle(action.Position, replayBrush.Get());
+        deviceContext->FillRectangle(action.Position, brush.Get());
         deviceContext->PopAxisAlignedClip();
         break;
     }
 
     case TEllipse: {
-        deviceContext->FillEllipse(action.Ellipse, replayBrush.Get());
+        deviceContext->FillEllipse(action.Ellipse, brush.Get());
         break;
     }
 
     case TLine: {
-        deviceContext->DrawLine(action.Line.startPoint, action.Line.endPoint, replayBrush.Get(), action.BrushSize, nullptr);
+        deviceContext->DrawLine(action.Line.startPoint, action.Line.endPoint, brush.Get(), action.BrushSize, nullptr);
         break;
     }
 
@@ -118,7 +248,7 @@ void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceConte
                     static_cast<float>(snappedTop + pixelSizeRatio)
                 );
 
-                deviceContext->FillRectangle(pixel, replayBrush.Get());
+                deviceContext->FillRectangle(pixel, brush.Get());
             }
             else {
 
@@ -134,28 +264,22 @@ void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceConte
                     scaledTop + scaledBrushSize * 0.5f
                 );
 
-                deviceContext->DrawRectangle(rect, replayBrush.Get());
-                deviceContext->FillRectangle(rect, replayBrush.Get());
+                deviceContext->DrawRectangle(rect, brush.Get());
+                deviceContext->FillRectangle(rect, brush.Get());
             }
         }
         break;
     }
 
     case TPaintBucket: {
-        if (action.PaintTarget > 0) {
-            Actions[action.PaintTarget].IsFilled = true;
-            Actions[action.PaintTarget].FillColor = action.FillColor;
+        deviceContext->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+        deviceContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+        for (const auto& p : action.pixelsToFill) {
+            D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
+            deviceContext->FillRectangle(&rect, fillBrush.Get());
         }
-        else {
-            deviceContext->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
-            deviceContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-            for (const auto& p : action.pixelsToFill) {
-                D2D1_RECT_F rect = D2D1::RectF((float)p.x, (float)p.y, (float)(p.x + 1), (float)(p.y + 1));
-                deviceContext->FillRectangle(&rect, replayBrush.Get());
-            }
-            deviceContext->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
-            deviceContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        }
+        deviceContext->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+        deviceContext->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);        
         break;
     }
 
@@ -195,13 +319,106 @@ void HRenderAction(const ACTION& action, Microsoft::WRL::ComPtr<ID2D1DeviceConte
         deviceContext->DrawTextLayout(
             D2D1::Point2F(action.Position.left, action.Position.top),
             textLayout.Get(),
-            replayBrush.Get()
+            brush.Get()
         );
         break;
     }
 
+    case TMove: {
+        if (action.LastMovedPosition == true) {
+            int target = action.TargetID;
+
+            auto MoveAction = std::find_if(
+                Actions.begin(),
+                Actions.end(),
+                [target](const ACTION& action) {
+                    return action.Id == target;
+                }
+            );
+
+			if (MoveAction == Actions.end()) break;
+
+            if (MoveAction->Tool == TRectangle || MoveAction->Tool == TWrite) {
+                MoveAction->Position = action.Position;
+            }
+            else if (MoveAction->Tool == TBrush) {
+                MoveAction->FreeForm = action.FreeForm;
+            }
+            else if (MoveAction->Tool == TEllipse) {
+                MoveAction->Ellipse = action.Ellipse;
+            }
+            else if (MoveAction->Tool == TLine) {
+                MoveAction->Line = action.Line;
+            }
+        }
+    }
+
     default:
         break;
+    }
+
+    ComPtr<ID2D1SolidColorBrush> handleFillBrush;
+    ComPtr<ID2D1SolidColorBrush> handleBorderBrush;
+
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> highlightBrush;
+
+    if (!highlightBrush)
+    {
+        deviceContext->CreateSolidColorBrush(
+            D2D1::ColorF(0.2f, 0.6f, 1.0f, 0.8f), // azul selection vibe
+            &highlightBrush
+        );
+    }
+
+    if (!handleFillBrush)
+    {
+        deviceContext->CreateSolidColorBrush(
+            D2D1::ColorF(1, 1, 1, 1),   // branco
+            &handleFillBrush
+        );
+
+        deviceContext->CreateSolidColorBrush(
+            D2D1::ColorF(0.2f, 0.6f, 1.0f, 1.0f), // azul selection
+            &handleBorderBrush
+        );
+    }
+
+    if (action.Id == selectedActionId)
+    {
+        D2D1_RECT_F bounds = GetActionBounds(action);
+
+        // Margem pra não colar no desenho
+        const float padding = 4.0f;
+        bounds.left -= padding;
+        bounds.top -= padding;
+        bounds.right += padding;
+        bounds.bottom += padding;
+
+        deviceContext->DrawRectangle(
+            bounds,
+            highlightBrush.Get(),
+            2.0f,
+            nullptr
+        );
+
+        DrawResizeHandles(
+            deviceContext.Get(),
+            bounds,
+            handleFillBrush.Get(),
+            handleBorderBrush.Get()
+        );
+
+        D2D1_POINT_2F rotationHandle = {
+            (bounds.left + bounds.right) * 0.5f,
+            bounds.top - 20.0f
+        };
+
+        deviceContext->DrawEllipse(
+            D2D1::Ellipse(rotationHandle, 6, 6),
+            handleBorderBrush.Get(),
+            2.0f
+        );
+
     }
 }
 
@@ -413,6 +630,7 @@ void HCreateHighlightFrame() {
 
     replaySwapChain->Present(1, 0);
 }
+
 void HSetTimelineHighlight() {
 
     RECT rc;
@@ -424,6 +642,7 @@ void HSetTimelineHighlight() {
 }
 
 /*REPLAY MODE*/
+
 void HSetReplayMode(int pReplayMode) {
     isReplayMode = pReplayMode;
 
@@ -431,6 +650,7 @@ void HSetReplayMode(int pReplayMode) {
 
         lastActiveReplayFrame = 0;
         g_scrollOffsetTimeline = 0;
+        replayPartialStepCount = 0;
 
         ReplayActions = Actions;
         ReplayRedoActions = RedoActions;
@@ -466,6 +686,7 @@ void HSetReplayMode(int pReplayMode) {
         TReplayRender();
     }
     else {
+        replayPartialStepCount = 0;
         Actions.clear();
         RedoActions.clear();
 
@@ -705,6 +926,7 @@ void HSetScrollPosition(int index) {
     int timelineParentWidth = rcParent.right - rcParent.left;
 
     for (size_t i = 0; i < TimelineFrameButtons.size(); i++) {
+        if (!TimelineFrameButtons[i].has_value()) continue;
         int currentFrameIndex = TimelineFrameButtons[i].value().FrameIndex;
 
         int x = ((timelineParentWidth / 2) - (itemWidth / 2) + (itemWidth * i)) - g_scrollOffsetTimeline;

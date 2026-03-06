@@ -371,7 +371,7 @@ void ReorderLayerDown() {
     TReorderLayerDown();
 }
 
-void RenderActionToTarget(const ACTION& action) {
+void RenderActionToTarget(ACTION& action) {
     HRenderAction(action, pRenderTarget, COLOR_UNDEFINED);
 }
 
@@ -492,6 +492,18 @@ void __stdcall MoveTool(int xInitial, int yInitial, int x, int y) {
 
 void __stdcall UnSelectTool() {
     TUnSelectTool();
+}
+
+void CopyAction() {
+    AuxCopyAction();
+}
+
+void PasteAction() {
+    AuxPasteAction();
+}
+
+void DeleteAction() {
+    AuxDeleteAction();
 }
 
 void Cleanup() {
