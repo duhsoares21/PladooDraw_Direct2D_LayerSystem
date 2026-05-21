@@ -1,5 +1,5 @@
 #pragma once
-#include "Base.h"
+#include "CoreBase.h"
 #include "Structs.h"
 
 extern "C" __declspec(dllexport) void __stdcall Resize();
@@ -59,6 +59,7 @@ extern "C" __declspec (dllexport) void ShowCurrentLayerOnly();
 extern "C" __declspec(dllexport) HRESULT RemoveLayer();
 extern "C" __declspec(dllexport) int GetLayer();
 extern "C" __declspec(dllexport) void SetLayer(int index);
+extern "C" __declspec(dllexport) bool IsReplayAtEnd();
 extern "C" __declspec(dllexport) int __stdcall IsLayerActive(int layer, int* isActive);
 extern "C" __declspec(dllexport) int GetActiveLayersCount();
 extern "C" __declspec(dllexport) void ReorderLayerUp();

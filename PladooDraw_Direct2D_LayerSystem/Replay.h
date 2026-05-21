@@ -1,5 +1,5 @@
 #pragma once
-#include "Base.h"
+#include "CoreBase.h"
 #include "Constants.h"
 #include "pch.h"
 
@@ -9,3 +9,4 @@ extern void TReplayRender();
 extern void TEditFromThisPoint();
 extern void TReplayBackwards();
 extern void TReplayForward();
+extern bool TIsReplayAtEnd();

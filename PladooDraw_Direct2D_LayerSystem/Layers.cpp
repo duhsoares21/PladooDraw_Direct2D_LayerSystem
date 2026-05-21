@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "Base.h"
+#include "CoreBase.h"
 #include "Constants.h"
 #include "Helpers.h"
 #include "Tools.h"
@@ -9,11 +9,12 @@
 #include "Animation.h"
 
 /* LAYERS */
-    
+
 int TLayersCount() {
     int total_layers = 0;
 
     for (size_t i = 0; i < layers.size(); ++i) {
+        if (!layers[i].has_value()) continue;  // guard: skip nullopt slots
         if (layers[i].value().LayerID > total_layers) {
             total_layers = layers[i].value().LayerID;
         }
@@ -36,9 +37,9 @@ void TUpdateLayerButtonsPosition() {
     }
 
     std::sort(result.begin(), result.end(),
-    [](const LayerOrder& a, const LayerOrder& b) {
-        return a.layerOrder > b.layerOrder;
-    });
+        [](const LayerOrder& a, const LayerOrder& b) {
+            return a.layerOrder > b.layerOrder;
+        });
 
     for (size_t i = 0; i < result.size(); ++i) {
         int currentLayerIndex = result[i].layerIndex;
@@ -49,50 +50,47 @@ void TUpdateLayerButtonsPosition() {
     }
 }
 
-Microsoft::WRL::ComPtr<ID2D1Bitmap1> CreateEmptyLayerBitmap()
+RenderData CreateEmptyLayerBitmap()
 {
-    if (!pRenderTarget) return nullptr;
-
-    D2D1_SIZE_U size = D2D1::SizeU(logicalWidth, logicalHeight);
-
-    FLOAT dpiX, dpiY;
-    pRenderTarget->GetDpi(&dpiX, &dpiY);
-
-    D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        dpiX, dpiY
+    // logicalWidth/Height are set by TInitializeDocument. If AddLayer is called
+    // before that (or the window was 0-sized), we must not pass 0x0 to the
+    // OpenGL backend - a 0x0 FBO is incomplete and CreateBitmapRenderData
+    // returns {}, causing TAddLayer to silently drop the layer entirely.
+    // Use a 1x1 fallback; the FBO will be recreated at the real size once
+    // TInitializeDocument runs and the layer is replayed/re-rendered.
+    float w = logicalWidth > 0.0f ? logicalWidth : 1.0f;
+    float h = logicalHeight > 0.0f ? logicalHeight : 1.0f;
+    return HCreateRenderData(
+        SizeU{
+            static_cast<uint32_t>(w),
+            static_cast<uint32_t>(h)
+        }
     );
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
-    HRESULT hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &props, &bitmap);
-
-    if (FAILED(hr)) {
-        std::wcerr << L"Falha ao criar bitmap vazio para layer. HRESULT: " << hr << std::endl;
-        return nullptr;
-    }
-
-    return bitmap;
 }
 
 HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame = -1) {
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap = CreateEmptyLayerBitmap();
-   
-    pRenderTarget->SetTarget(pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->Clear(D2D1::ColorF(1, 1, 1, 0));
-    pRenderTarget->EndDraw();
+    RenderData renderData = CreateEmptyLayerBitmap();
+    if (!renderData.surfaceHandle || !renderData.bitmapHandle) {
+        HCreateLogData("error.log", "TAddLayer: CreateEmptyLayerBitmap returned empty RenderData - layer NOT added");
+        return E_FAIL;
+    }
+    HCreateLogData("error.log", "TAddLayer: CreateEmptyLayerBitmap OK - layer will be added");
+
+    renderData.surfaceHandle->BeginDraw();
+    renderData.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+    renderData.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+    renderData.surfaceHandle->EndDraw();
 
     if (currentFrame == -1) {
         currentFrame = 0;
     }
 
     // Add to layers
-    Layer layer = { currentLayer, currentFrame, true, true, pBitmap };
+    Layer layer = { currentLayer, currentFrame, true, true, renderData.surfaceHandle, renderData.bitmapHandle };
     layers.emplace_back(layer);
 
     if (!fromFile && currentFrame == 0) {
-        LayerOrder layerOrder = { TLayersCount() - 1, TLayersCount() - 1};
+        LayerOrder layerOrder = { TLayersCount() - 1, TLayersCount() - 1 };
         layersOrder.emplace_back(layerOrder);
     }
 
@@ -132,6 +130,42 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame
     return S_OK;
 }
 
+void TResizeLayers() {
+    // Called after TInitializeDocument sets logicalWidth/logicalHeight.
+    // Any layer whose surface was created with the 0x0->1x1 fallback (because
+    // AddLayer was called before the document size was known) needs its FBO
+    // and texture replaced at the real canvas size.
+    if (logicalWidth <= 0.0f || logicalHeight <= 0.0f) return;
+
+    SizeU realSize = {
+        static_cast<uint32_t>(logicalWidth),
+        static_cast<uint32_t>(logicalHeight)
+    };
+
+    for (auto& optLayer : layers) {
+        if (!optLayer.has_value()) continue;
+        Layer& layer = optLayer.value();
+
+        // Check if the surface size is wrong (e.g. the 1x1 fallback)
+        if (layer.surfaceHandle) {
+            SizeU current = layer.surfaceHandle->GetSize();
+            if (current.width == realSize.width && current.height == realSize.height) continue;
+        }
+
+        // Recreate at the correct size
+        RenderData rd = HCreateRenderData(realSize);
+        if (!rd.surfaceHandle || !rd.bitmapHandle) continue;
+
+        rd.surfaceHandle->BeginDraw();
+        rd.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+        rd.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+        rd.surfaceHandle->EndDraw();
+
+        layer.surfaceHandle = rd.surfaceHandle;
+        layer.bitmapHandle = rd.bitmapHandle;
+    }
+}
+
 void TAddLayerButton(int LayerButtonID, bool visible = true) {
 
     HINSTANCE hLayerInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(layersHWND, GWLP_HINSTANCE));
@@ -141,68 +175,31 @@ void TAddLayerButton(int LayerButtonID, bool visible = true) {
     TReorderLayers(true);
 
     HWND layerButton = CreateWindowEx(
-        0,                        
-        L"Button",               
-        L"",                     
+        0,
+        L"Button",
+        L"",
         style,
-        0,                           
+        0,
         0,
         btnWidth,
         btnHeight,
         layersHWND,
         (HMENU)(intptr_t)LayerButtonID,
-        hLayerInstance,              
-        NULL                         
+        hLayerInstance,
+        NULL
     );
-    
+
     SetLayer(LayerButtonID);
 
-    RECT rc;
-    GetClientRect(layerButton, &rc);
-    D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = TSetSwapChainDescription(size.width, size.height, DXGI_ALPHA_MODE_IGNORE);
-
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> layerDeviceContext;
-    HRESULT hr = g_pD2DDevice->CreateDeviceContext(
-        D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-        layerDeviceContext.GetAddressOf()
-    );
-
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> layerSwapChain;
-    g_dxgiFactory->CreateSwapChainForHwnd(
-        g_pD3DDevice.Get(),
-        layerButton,
-        &swapDesc,
-        nullptr, nullptr,
-        &layerSwapChain
-    );
-
-    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
-    layerSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
-    D2D1_BITMAP_PROPERTIES1 bitmapProperties = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
-    );
-
-    layerDeviceContext->CreateBitmapFromDxgiSurface(
-        backBuffer.Get(),
-        &bitmapProperties,
-        &targetBitmap
-    );
-
-    layerDeviceContext->SetTarget(targetBitmap.Get());
+    RenderData renderData = HCreateRenderDataHWND(layerButton);
 
     LayerButtons.push_back(LayerButton{
         LayerButtonID,
         CurrentFrameIndex,
         layerButton,
-        layerDeviceContext,
-        layerSwapChain,
-        visible
-    });
+        visible,
+        renderData.surfaceHandle
+        });
 
     TDrawLayerPreview(LayerButtonID);
 }
@@ -264,8 +261,8 @@ void TRemoveLayerButton(int currentLayer = -1) {
         layerIndex = currentLayer;
     }
 
-    if (!LayerButtons[layerIndex].has_value()) return;  
-    
+    if (!LayerButtons[layerIndex].has_value()) return;
+
     DestroyWindow(LayerButtons[layerIndex].value().button);
     LayerButtons[layerIndex].reset();
 
@@ -289,7 +286,8 @@ void TShowCurrentLayerOnly() {
             layer.value().isVisible = true;
         }
         isShowingCurrentLayerOnly = false;
-    } else {
+    }
+    else {
         for (auto& layer : layers) {
             if (!layer.has_value()) continue;
             layer.value().isVisible = (layer.value().LayerID == layerIndex);
@@ -379,31 +377,42 @@ void TUpdateLayers(int layerIndexTarget = -1, int CurrentFrameIndexTarget = -1) 
         }
     );
 
-    // 3. Renderizar todas as ações dentro do layer encontrado
-    auto& layer = itLayer->value(); // referência para evitar cópia
-    pRenderTarget->SetTarget(layer.pBitmap.Get());
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
-
-    for (auto& action : validActions) {
-        HRenderAction(action, pRenderTarget, COLOR_UNDEFINED);
+    // 3. Renderizar todas as acoes dentro do layer encontrado
+    auto& layer = itLayer->value();
+    if (!layer.surfaceHandle) {
+        return;
     }
 
-    pRenderTarget->EndDraw();
+    layer.surfaceHandle->BeginDraw();
+    layer.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+    layer.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+
+    for (auto& action : validActions) {
+        HRenderAction(action, *layer.surfaceHandle);
+    }
+
+    layer.surfaceHandle->EndDraw();
 }
 
 void TRenderLayers() {
 
-    pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());  
-        
+    if (!gGraphicsBackend) {
+        return;
+    }
+
+    RenderSurfacePtr documentSurface = gGraphicsBackend->GetDocumentSurface();
+    if (!documentSurface) {
+        return;
+    }
+
+    documentSurface->BeginDraw();
+    documentSurface->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
+    documentSurface->SetTransform(MakeIdentityMatrix3x2());
+
     std::vector<LayerOrder> sortedLayers = layersOrder;
     std::sort(sortedLayers.begin(), sortedLayers.end(),
         [](const LayerOrder& a, const LayerOrder& b) {
-            return a.layerOrder < b.layerOrder; // higher order drawn first
+            return a.layerOrder < b.layerOrder;
         });
 
     for (const auto& lo : sortedLayers) {
@@ -420,8 +429,8 @@ void TRenderLayers() {
             }
         );
 
-        if (currentLayer != layers.end() && currentLayer->has_value()) {
-            pRenderTarget->DrawBitmap(currentLayer->value().pBitmap.Get());
+        if (currentLayer != layers.end() && currentLayer->has_value() && currentLayer->value().bitmapHandle) {
+            documentSurface->DrawBitmap(*currentLayer->value().bitmapHandle);
         }
 
         if (CurrentFrameIndex > 0) {
@@ -434,108 +443,88 @@ void TRenderLayers() {
                         optLayer->FrameIndex == CurrentFrameIndex - 1;
                 }
             );
-        
-            if (previousLayer != layers.end() && previousLayer->has_value() && isAnimationMode && CurrentFrameIndex > 0 && previousLayer->value().isVisible && !isPlayingAnimation && !hideShadow) {
-                pRenderTarget->DrawBitmap(
-                    previousLayer->value().pBitmap.Get(),
-                    nullptr,                       // desenha em toda a área
-                    0.2f,                          // 20% de opacidade
-                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR
-                );
+
+            if (previousLayer != layers.end() &&
+                previousLayer->has_value() &&
+                previousLayer->value().bitmapHandle &&
+                isAnimationMode &&
+                CurrentFrameIndex > 0 &&
+                previousLayer->value().isVisible &&
+                !isPlayingAnimation &&
+                !hideShadow) {
+                documentSurface->DrawBitmap(*previousLayer->value().bitmapHandle, nullptr, 0.2f);
             }
         }
     }
 
-    pRenderTarget->EndDraw();
+    documentSurface->EndDraw();
+    documentSurface->Present(0);
 
-    g_pSwapChain->Present(0, 0);
-  
-    if (layers[layerIndex].has_value()) {
+    if (layerIndex >= 0 && layerIndex < layers.size() && layers[layerIndex].has_value()) {
         TDrawLayerPreview(layerIndex);
     }
 }
-    
+
 void TSelectedLayerHighlight(int currentLayer) {
-    // Exit if there's nothing to draw on.
     if (LayerButtons.empty()) {
         return;
     }
 
-    // Iterate through all potential layer buttons
     for (size_t i = 0; i < LayerButtons.size(); i++) {
-        // Skip if this button slot is empty (e.g., after a layer was deleted)
         if (!LayerButtons[i].has_value()) {
             continue;
         }
 
         auto& btn = LayerButtons[i].value();
-        auto& deviceContext = btn.deviceContext;
-        auto& swapChain = btn.swapChain;
+        if (!btn.surfaceHandle) {
+            continue;
+        }
 
-        // --- Begin Drawing on the Button's Surface ---
-        deviceContext->BeginDraw();
-        deviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
-        deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        btn.surfaceHandle->BeginDraw();
+        btn.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+        btn.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
 
-        // Get the button's client area rectangle
         RECT rc;
         GetClientRect(btn.button, &rc);
-        D2D1_RECT_F drawRect = D2D1::RectF(0.0f, 0.0f, static_cast<float>(rc.right), static_cast<float>(rc.bottom));
+        RectF drawRect = MakeRectF(0.0f, 0.0f, static_cast<float>(rc.right), static_cast<float>(rc.bottom));
 
         auto it = std::find_if(
             layers.begin(),
             layers.end(),
             [&](const std::optional<Layer>& optLayer) {
                 return optLayer.has_value()
-                    && optLayer->LayerID == btn.LayerID     // compara com LayerID do botão
+                    && optLayer->LayerID == btn.LayerID
                     && optLayer->FrameIndex == CurrentFrameIndex;
             }
         );
 
-        if (it != layers.end() && it->has_value()) {
-            // desenha o bitmap do layer encontrado (miniatura do frame atual)
-            deviceContext->DrawBitmap(it->value().pBitmap.Get(), drawRect);
+        if (it != layers.end() && it->has_value() && it->value().bitmapHandle) {
+            btn.surfaceHandle->DrawBitmap(*it->value().bitmapHandle, &drawRect);
         }
 
-        // --- Logic for Creating/Setting the Brush Color ---
         bool isActive = (static_cast<int>(i) == currentLayer);
-        D2D1_COLOR_F borderColor;
+        ColorRGBA borderColor;
         float borderWidth;
 
         if (isActive) {
-            // Active layer: use a highlight color and a thicker border
-            borderColor = D2D1::ColorF(D2D1::ColorF(0.05f,0.63f,1.0f,0.3f)); // Highlight color
+            borderColor = ColorRGBA{ 0.05f, 0.63f, 1.0f, 0.3f };
             borderWidth = 3.0f;
         }
         else {
-            // Inactive layer: use a subtle color and a standard border
-            borderColor = D2D1::ColorF(D2D1::ColorF::LightGray, 0.0f); // Default border color
+            borderColor = ColorRGBA{ 0.83f, 0.83f, 0.83f, 0.0f };
             borderWidth = 1.0f;
         }
 
-        // Check if the global pBrush needs to be created
-        if (pBrush == nullptr) {
-            // It doesn't exist, so create it with the current needed color
-            deviceContext->CreateSolidColorBrush(borderColor, &pBrush);
-        }
-        else {
-            // It already exists, just update its color
-            pBrush->SetColor(borderColor);
+        if (borderWidth > 0.0f) {
+            btn.surfaceHandle->StrokeRect(drawRect, borderColor, borderWidth);
         }
 
-        // 2. Draw the border rectangle using the configured pBrush
-        if (pBrush) { // Safety check
-            deviceContext->FillRectangle(drawRect, pBrush.Get());
-        }
-
-        // --- End Drawing and Present ---
-        HRESULT hr = deviceContext->EndDraw();
+        HRESULT hr = btn.surfaceHandle->EndDraw();
         if (SUCCEEDED(hr)) {
-            swapChain->Present(1, 0);
+            btn.surfaceHandle->Present(1);
         }
     }
 }
-
 void TDrawLayerPreview(int currentLayer) {
     TSelectedLayerHighlight(currentLayer);
 }

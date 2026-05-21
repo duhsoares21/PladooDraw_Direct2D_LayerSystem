@@ -4,7 +4,7 @@
 const int DX[4] = { -1, 1, 0, 0 };
 const int DY[4] = { 0, 0, -1, 1 };
 
-const D2D1_COLOR_F COLOR_UNDEFINED = { -1.0f, -1.0f, -1.0f, -1.0f };
+const ColorRGBA COLOR_UNDEFINED = { -1.0f, -1.0f, -1.0f, -1.0f };
 
 std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
 
@@ -16,29 +16,7 @@ HWND layersControlButtonsGroupHWND = NULL;
 HWND toolsHWND = NULL;
 HWND timelineHWND = NULL;
 HWND* hLayerButtons = NULL;
-
-Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
-Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
-Microsoft::WRL::ComPtr<ID2D1Factory1> pD2DFactory;
-
-Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush = nullptr;
-Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTarget = nullptr;
-Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTargetLayer = nullptr;
-
-Microsoft::WRL::ComPtr<ID3D11Device> g_pD3DDevice;
-Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
-Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
-Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
-Microsoft::WRL::ComPtr<IDXGIDevice1> g_dxgiDevice;
-Microsoft::WRL::ComPtr<IDXGIAdapter> g_adapter;
-Microsoft::WRL::ComPtr<IDXGIFactory2> g_dxgiFactory;
-
-Microsoft::WRL::ComPtr<ID3D11RenderTargetView> g_pRenderTargetView;
-Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;
-Microsoft::WRL::ComPtr<IDCompositionTarget> g_pDCompTarget;
-Microsoft::WRL::ComPtr<IDCompositionVisual> g_pDCompVisual;
-
-Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
+std::unique_ptr<IGraphicsBackend> gGraphicsBackend;
 
 float logicalWidth = 0.0f;
 float logicalHeight = 0.0f;
@@ -49,16 +27,16 @@ int replayPartialStepCount = 0;
 
 bool hideShadow = false;
 
-D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
-D2D1_RECT_F rectangle = D2D1::RectF(0, 0, 0, 0);
-D2D1_RECT_F textArea = D2D1::RectF(0, 0, 0, 0);
-D2D1_RECT_F bitmapRect = D2D1::RectF(0, 0, 0, 0);
-D2D1_RECT_F prevRectangle = D2D1::RectF(0, 0, 0, 0);
-D2D1_RECT_F prevTextArea = D2D1::RectF(0, 0, 0, 0);
-D2D1_ELLIPSE prevEllipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
+EllipseF ellipse = MakeEllipseF(MakePointF(0.0f, 0.0f), 0.0f, 0.0f);
+RectF rectangle = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+RectF textArea = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+RectF bitmapRect = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+RectF prevRectangle = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+RectF prevTextArea = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+EllipseF prevEllipse = MakeEllipseF(MakePointF(0.0f, 0.0f), 0.0f, 0.0f);
 
-D2D1_POINT_2F startPoint = { 0, 0 };
-D2D1_POINT_2F endPoint = { 0, 0 };
+PointF startPoint = MakePointF(0.0f, 0.0f);
+PointF endPoint = MakePointF(0.0f, 0.0f);
 
 COLORREF currentColor = 0;
 
@@ -97,8 +75,6 @@ HWND highlightFrame = nullptr;
 WNDPROC oldEditProc;
 
 std::string loadedFileName;
-
-Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 std::vector<LayerOrder> layersOrder;
 std::vector<Layer> layerBitmaps;

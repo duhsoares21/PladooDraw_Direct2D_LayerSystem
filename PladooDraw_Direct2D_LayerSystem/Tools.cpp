@@ -1,5 +1,5 @@
-#include "pch.h"
-#include "Base.h"
+﻿#include "pch.h"
+#include "CoreBase.h"
 #include "Structs.h"
 #include "Constants.h"
 #include "Helpers.h"
@@ -11,28 +11,41 @@
 
 /* TOOLS */
 
+namespace {
+    std::optional<std::reference_wrapper<Layer>> FindLayerRef(int targetLayerIndex, int targetFrameIndex) {
+        auto it = std::find_if(
+            layers.begin(),
+            layers.end(),
+            [targetLayerIndex, targetFrameIndex](const std::optional<Layer>& optLayer) {
+                return optLayer.has_value() && optLayer->LayerID == targetLayerIndex && optLayer->FrameIndex == targetFrameIndex;
+            }
+        );
+
+        if (it == layers.end() || !it->has_value()) {
+            return std::nullopt;
+        }
+
+        return std::ref(it->value());
+    }
+}
+
 void TEraserTool(int left, int top) {
 
 	RedoActions.clear();
 
-    auto it = std::find_if(
-        layers.begin(),
-        layers.end(),
-        [](const std::optional<Layer>& optLayer) {
-            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
-        }
-    );
+    auto layerRef = FindLayerRef(layerIndex, CurrentFrameIndex);
+    if (!layerRef.has_value()) return;
 
-    if (!it->has_value()) return;
+    Layer& currentLayerRef = layerRef->get();
+    if (!currentLayerRef.surfaceHandle) return;
 
     if (prevLeft == -1 && prevTop == -1) {
         prevLeft = static_cast<float>(left) / zoomFactor;
         prevTop = static_cast<float>(top) / zoomFactor;
     }
 
-    pRenderTarget->SetTarget(it->value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    currentLayerRef.surfaceHandle->BeginDraw();
+    currentLayerRef.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
 
     // Scale coordinates and size
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -54,16 +67,16 @@ void TEraserTool(int left, int top) {
             float x = prevLeft + i * deltaX;
             float y = prevTop + i * deltaY;
 
-            D2D1_RECT_F rect = D2D1::RectF(
+            RectF rect = MakeRectF(
                 x - scaledBrushSize,
                 y - scaledBrushSize,
                 x + scaledBrushSize,
                 y + scaledBrushSize
             );
 
-            pRenderTarget->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            pRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-            pRenderTarget->PopAxisAlignedClip();
+            currentLayerRef.surfaceHandle->PushClip(rect);
+            currentLayerRef.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+            currentLayerRef.surfaceHandle->PopClip();
 
             if (x != prevLeft || y != prevTop) {
                 if (x != -1 && y != -1) {
@@ -71,7 +84,7 @@ void TEraserTool(int left, int top) {
                     action.Tool = 0;
                     action.Layer = layerIndex;
                     action.Position = rect;
-                    action.BrushSize = scaledBrushSize;
+                    action.BrushSize = static_cast<int>(scaledBrushSize);
                     action.IsFilled = false;
                     Actions.emplace_back(action);
                 }
@@ -79,16 +92,16 @@ void TEraserTool(int left, int top) {
         }
     }
 
-    D2D1_RECT_F rect = D2D1::RectF(
+    RectF rect = MakeRectF(
         scaledLeft - scaledBrushSize,
         scaledTop - scaledBrushSize,
         scaledLeft + scaledBrushSize,
         scaledTop + scaledBrushSize
     );
 
-    pRenderTarget->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-    pRenderTarget->PopAxisAlignedClip();
+    currentLayerRef.surfaceHandle->PushClip(rect);
+    currentLayerRef.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+    currentLayerRef.surfaceHandle->PopClip();
 
     if (scaledLeft != prevLeft || scaledTop != prevTop) {
         if (scaledLeft != -1 && scaledTop != -1) {
@@ -100,7 +113,7 @@ void TEraserTool(int left, int top) {
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
             action.Position = rect;
-            action.BrushSize = scaledBrushSize;
+            action.BrushSize = static_cast<int>(scaledBrushSize);
             action.IsFilled = false;
             Actions.emplace_back(action);
         }
@@ -109,30 +122,17 @@ void TEraserTool(int left, int top) {
     prevLeft = scaledLeft;
     prevTop = scaledTop;
 
-    pRenderTarget->EndDraw();
+    currentLayerRef.surfaceHandle->EndDraw();
 }
 
 void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixelSizeRatio) {
     RedoActions.clear();
 
-    auto it = std::find_if(
-        layers.begin(),
-        layers.end(),
-        [](const std::optional<Layer>& optLayer) {
-            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
-        }
-    );
+    auto layerRef = FindLayerRef(layerIndex, CurrentFrameIndex);
+    if (!layerRef.has_value()) return;
 
-    if (it == layers.end()) return;
-
-    if (!it->has_value()) return;
-
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
-    }
-    else {
-        pBrush->SetColor(HGetRGBColor(hexColor));
-    }
+    Layer& currentLayerRef = layerRef->get();
+    if (!currentLayerRef.surfaceHandle) return;
 
     if (pixelSizeRatio == -1) {
         pixelSizeRatio = pPixelSizeRatio;
@@ -142,10 +142,8 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
     isDrawingBrush = true;
     isPixelMode = pixelMode;
 
-    pRenderTarget->SetTarget(it->value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    currentLayerRef.surfaceHandle->BeginDraw();
+    currentLayerRef.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
 
     // Scale coordinates and sizes
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -169,14 +167,14 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
         int snappedLeft = static_cast<int>(scaledLeft / pixelSizeRatio) * pixelSizeRatio;
         int snappedTop = static_cast<int>(scaledTop / pixelSizeRatio) * pixelSizeRatio;
 
-        D2D1_RECT_F pixel = D2D1::RectF(
+        RectF pixel = MakeRectF(
             static_cast<float>(snappedLeft),
             static_cast<float>(snappedTop),
             static_cast<float>(snappedLeft + pixelSizeRatio),
             static_cast<float>(snappedTop + pixelSizeRatio)
         );
 
-        pRenderTarget->FillRectangle(pixel, pBrush.Get());
+        currentLayerRef.surfaceHandle->FillRect(pixel, HGetRGBAColor(hexColor));
 
         Vertices.emplace_back(VERTICE{ static_cast<float>(snappedLeft), static_cast<float>(snappedTop), static_cast<int>(currentBrushSize) });
     }
@@ -201,15 +199,15 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
                 float x = prevLeft + i * deltaX;
                 float y = prevTop + i * deltaY;
 
-                D2D1_RECT_F rect = D2D1::RectF(
+                RectF rect = MakeRectF(
                     x - scaledBrushSize * 0.5f,
                     y - scaledBrushSize * 0.5f,
                     x + scaledBrushSize * 0.5f,
                     y + scaledBrushSize * 0.5f
                 );
 
-                pRenderTarget->DrawRectangle(rect, pBrush.Get());
-                pRenderTarget->FillRectangle(rect, pBrush.Get());
+                currentLayerRef.surfaceHandle->StrokeRect(rect, HGetRGBAColor(hexColor), 1.0f);
+                currentLayerRef.surfaceHandle->FillRect(rect, HGetRGBAColor(hexColor));
 
                 if (x != -1 && y != -1) {
                     Vertices.emplace_back(VERTICE{ x, y });
@@ -217,22 +215,22 @@ void TBrushTool(int left, int top, COLORREF hexColor, bool pixelMode, int pPixel
             }
         }
 
-        D2D1_RECT_F rect = D2D1::RectF(
+        RectF rect = MakeRectF(
             scaledLeft - scaledBrushSize * 0.5f,
             scaledTop - scaledBrushSize * 0.5f,
             scaledLeft + scaledBrushSize * 0.5f,
             scaledTop + scaledBrushSize * 0.5f
         );
 
-        pRenderTarget->DrawRectangle(rect, pBrush.Get());
-        pRenderTarget->FillRectangle(rect, pBrush.Get());
+        currentLayerRef.surfaceHandle->StrokeRect(rect, HGetRGBAColor(hexColor), 1.0f);
+        currentLayerRef.surfaceHandle->FillRect(rect, HGetRGBAColor(hexColor));
 
         if (scaledLeft != -1 && scaledTop != -1) {
             Vertices.emplace_back(VERTICE{ static_cast<float>(scaledLeft), static_cast<float>(scaledTop), static_cast<int>(currentBrushSize) });
         }
     }
 
-    pRenderTarget->EndDraw();
+    currentLayerRef.surfaceHandle->EndDraw();
 
     prevLeft = scaledLeft;
     prevTop = scaledTop;
@@ -243,13 +241,6 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
 
     if (!layers[layerIndex].has_value()) return;
 
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
-    }
-    else {
-        pBrush->SetColor(HGetRGBColor(hexColor));
-    }
-
     if (!isDrawingRectangle) {
         TAddLayer(false, -1, CurrentFrameIndex);
     }
@@ -258,9 +249,11 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[TLayersCount() - 1].value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    auto& previewLayer = layers[TLayersCount() - 1].value();
+    if (!previewLayer.surfaceHandle) return;
+
+    previewLayer.surfaceHandle->BeginDraw();
+    previewLayer.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
 
     // Scale coordinates
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -268,34 +261,27 @@ void TRectangleTool(int left, int top, int right, int bottom, unsigned int hexCo
     float scaledRight = static_cast<float>(right) / zoomFactor;
     float scaledBottom = static_cast<float>(bottom) / zoomFactor;
 
-    rectangle = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
+    rectangle = MakeRectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
 
     if (prevRectangle.left != 0 || prevRectangle.top != 0 || prevRectangle.right != 0 || prevRectangle.bottom != 0) {
-        pRenderTarget->PushAxisAlignedClip(prevRectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        pRenderTarget->PopAxisAlignedClip();
+        previewLayer.surfaceHandle->PushClip(prevRectangle);
+        previewLayer.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+        previewLayer.surfaceHandle->PopClip();
     }
 
-    pRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    pRenderTarget->FillRectangle(rectangle, pBrush.Get());
-    pRenderTarget->PopAxisAlignedClip();
+    previewLayer.surfaceHandle->PushClip(rectangle);
+    previewLayer.surfaceHandle->FillRect(rectangle, HGetRGBAColor(hexColor));
+    previewLayer.surfaceHandle->PopClip();
 
-    prevRectangle = D2D1::RectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
+    prevRectangle = MakeRectF(scaledLeft, scaledTop, scaledRight, scaledBottom);
 
-    pRenderTarget->EndDraw();
+    previewLayer.surfaceHandle->EndDraw();
 }
 
 void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColor) {
     RedoActions.clear();
 
     if (!layers[layerIndex].has_value()) return;
-
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
-    }
-    else {
-        pBrush->SetColor(HGetRGBColor(hexColor));
-    }
 
     if (!isDrawingEllipse) {
         TAddLayer(false, -1, -1);
@@ -305,9 +291,11 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[TLayersCount() - 1].value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    auto& previewLayer = layers[TLayersCount() - 1].value();
+    if (!previewLayer.surfaceHandle) return;
+
+    previewLayer.surfaceHandle->BeginDraw();
+    previewLayer.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
 
     // Scale coordinates
     float scaledLeft = static_cast<float>(left) / zoomFactor;
@@ -315,43 +303,36 @@ void TEllipseTool(int left, int top, int right, int bottom, unsigned int hexColo
     float scaledRight = static_cast<float>(right) / zoomFactor;
     float scaledBottom = static_cast<float>(bottom) / zoomFactor;
 
-    ellipse = D2D1::Ellipse(
-        D2D1::Point2F(scaledLeft, scaledTop),
+    ellipse = MakeEllipseF(
+        MakePointF(scaledLeft, scaledTop),
         abs(scaledRight - scaledLeft) / 2.0f,
         abs(scaledBottom - scaledTop) / 2.0f
     );
 
     if (prevEllipse.point.x != 0 || prevEllipse.point.y != 0 || prevEllipse.radiusX != 0 || prevEllipse.radiusY != 0) {
-        D2D1_RECT_F prevRect = D2D1::RectF(
+        RectF prevRect = MakeRectF(
             prevEllipse.point.x - prevEllipse.radiusX,
             prevEllipse.point.y - prevEllipse.radiusY,
             prevEllipse.point.x + prevEllipse.radiusX,
             prevEllipse.point.y + prevEllipse.radiusY
         );
 
-        pRenderTarget->PushAxisAlignedClip(prevRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        pRenderTarget->PopAxisAlignedClip();
+        previewLayer.surfaceHandle->PushClip(prevRect);
+        previewLayer.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+        previewLayer.surfaceHandle->PopClip();
     }
 
-    pRenderTarget->FillEllipse(ellipse, pBrush.Get());
+    previewLayer.surfaceHandle->FillEllipse(ellipse, HGetRGBAColor(hexColor));
 
     prevEllipse = ellipse;
 
-    pRenderTarget->EndDraw();
+    previewLayer.surfaceHandle->EndDraw();
 }
 
 void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) {
     RedoActions.clear();
 
     if (!layers[layerIndex].has_value()) return;
-
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(hexColor), &pBrush);
-    }
-    else {
-        pBrush->SetColor(HGetRGBColor(hexColor));
-    }
 
     if (!isDrawingLine) {
         TAddLayer(false, -1, -1);
@@ -361,9 +342,11 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
 
     currentColor = hexColor;
 
-    pRenderTarget->SetTarget(layers[TLayersCount() - 1].value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    auto& previewLayer = layers[TLayersCount() - 1].value();
+    if (!previewLayer.surfaceHandle) return;
+
+    previewLayer.surfaceHandle->BeginDraw();
+    previewLayer.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
 
     // Scale coordinates and size
     float scaledXInitial = static_cast<float>(xInitial) / zoomFactor;
@@ -373,40 +356,34 @@ void TLineTool(int xInitial, int yInitial, int x, int y, unsigned int hexColor) 
     float scaledBrushSize = static_cast<float>(currentBrushSize) / zoomFactor;
 
     if (startPoint.x != 0 || startPoint.y != 0 || endPoint.x != 0 || endPoint.y != 0) {
-        D2D1_RECT_F lineBounds = D2D1::RectF(
+        RectF lineBounds = MakeRectF(
             min(startPoint.x, endPoint.x) - scaledBrushSize,
             min(startPoint.y, endPoint.y) - scaledBrushSize,
             max(startPoint.x, endPoint.x) + scaledBrushSize,
             max(startPoint.y, endPoint.y) + scaledBrushSize
         );
 
-        pRenderTarget->PushAxisAlignedClip(lineBounds, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pRenderTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
-        pRenderTarget->PopAxisAlignedClip();
+        previewLayer.surfaceHandle->PushClip(lineBounds);
+        previewLayer.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+        previewLayer.surfaceHandle->PopClip();
     }
 
-    startPoint = D2D1::Point2F(scaledXInitial, scaledYInitial);
-    endPoint = D2D1::Point2F(scaledX, scaledY);
+    startPoint = MakePointF(scaledXInitial, scaledYInitial);
+    endPoint = MakePointF(scaledX, scaledY);
 
-    pRenderTarget->DrawLine(startPoint, endPoint, pBrush.Get(), scaledBrushSize, nullptr);
+    previewLayer.surfaceHandle->DrawLine(startPoint, endPoint, HGetRGBAColor(hexColor), scaledBrushSize);
 
-    pRenderTarget->EndDraw();
+    previewLayer.surfaceHandle->EndDraw();
 }
 
 void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     
     RedoActions.clear();
 
-    auto it = std::find_if(
-        layers.begin(),
-        layers.end(),
-        [](const std::optional<Layer>& optLayer) {
-            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
-        }
-    );
-
-    if (it == layers.end()) return;
-    if (!it->has_value()) return;
+    auto layerRef = FindLayerRef(layerIndex, CurrentFrameIndex);
+    if (!layerRef.has_value()) return;
+    Layer& currentLayerRef = layerRef->get();
+    if (!currentLayerRef.surfaceHandle) return;
 
     RECT rc;
     GetClientRect(docHWND, &rc);
@@ -462,30 +439,22 @@ void TPaintBucketTool(int mouseX, int mouseY, COLORREF fillColor, HWND hWnd) {
     }
     // --- END OPTIMIZED BFS ---
 
-    if (pBrush == nullptr) {
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fillColor), &pBrush);
-    }
-    else {
-        pBrush->SetColor(HGetRGBColor(fillColor));
-    }
-
-    std::vector<D2D1_RECT_F> rects(pixelsToFill.size());
+    std::vector<RectF> rects(pixelsToFill.size());
     
     for (size_t j = 0; j < pixelsToFill.size(); j++) {
         auto [px, py] = pixelsToFill[j];
-        rects[j] = D2D1::RectF(
+        rects[j] = MakeRectF(
             (FLOAT)px, (FLOAT)py,
             (FLOAT)px + 1, (FLOAT)py + 1
         );
     }
     
-    pRenderTarget->SetTarget(it->value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    currentLayerRef.surfaceHandle->BeginDraw();
+    currentLayerRef.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
     for (auto& r : rects) {
-        pRenderTarget->FillRectangle(r, pBrush.Get());
+        currentLayerRef.surfaceHandle->FillRect(r, HGetRGBAColor(fillColor));
     }
-    pRenderTarget->EndDraw();
+    currentLayerRef.surfaceHandle->EndDraw();
 
     // 6) Salva ACTION
 
@@ -548,7 +517,7 @@ void TWriteTool(int x, int y) {
     float scaledW = 200 / zoomFactor;
     float scaledH = 30 / zoomFactor;
 
-    textArea = D2D1::RectF(scaledX, scaledY, scaledX + scaledW, scaledY + scaledH);
+    textArea = MakeRectF(scaledX, scaledY, scaledX + scaledW, scaledY + scaledH);
 
     HINSTANCE hInstance = GetModuleHandle(NULL);
 
@@ -569,70 +538,30 @@ void TWriteTool(int x, int y) {
 }
 
 void TWriteToolCommitText() {
-    auto it = std::find_if(
-        layers.begin(),
-        layers.end(),
-        [](const std::optional<Layer>& optLayer) {
-            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
-        }
-    );
-
-    if (!it->has_value()) return;
+    auto layerRef = FindLayerRef(layerIndex, CurrentFrameIndex);
+    if (!layerRef.has_value()) return;
+    Layer& currentLayerRef = layerRef->get();
+    if (!currentLayerRef.surfaceHandle || !gGraphicsBackend) return;
 
     wchar_t buffer[1024] = {};
     GetWindowText(hTextInput, buffer, 1024);
     std::wstring text(buffer);
 
-    // Draw the text onto the layer bitmap
-    pRenderTarget->SetTarget(it->value().pBitmap.Get());
-    pRenderTarget->BeginDraw();
-    //pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    FontDesc fontDesc{
+        fontFace,
+        fontSize,
+        static_cast<int>(fontWeight),
+        fontItalic != 0,
+        fontUnderline != 0,
+        fontStrike != 0
+    };
 
-    if (pBrush) {
-        pBrush->SetColor(HGetRGBColor(fontColor));
-    }
-    else {
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(fontColor), &pBrush);
-    }
+    currentLayerRef.surfaceHandle->BeginDraw();
+    currentLayerRef.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+    currentLayerRef.surfaceHandle->DrawText(text, fontDesc, textArea, HGetRGBAColor(fontColor));
+    currentLayerRef.surfaceHandle->EndDraw();
 
-    pDWriteFactory->CreateTextFormat(
-        fontFace.c_str(),                                     // Font family
-        nullptr,                                           // Font collection (nullptr = system)
-        static_cast<DWRITE_FONT_WEIGHT>(
-            (fontWeight > DWRITE_FONT_WEIGHT_BLACK) ? DWRITE_FONT_WEIGHT_BLACK : fontWeight
-            ),
-        fontItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        static_cast<FLOAT>(fontSize) / 10.0f,       // Convert tenths of a point to DIPs
-        L"en-us",                                         // Locale
-        &pTextFormat
-    );
-
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> textLayout;
-    pDWriteFactory->CreateTextLayout(
-        text.c_str(),
-        static_cast<UINT32>(text.size()),
-        pTextFormat.Get(),
-        textArea.right - textArea.left,
-        textArea.bottom - textArea.top,
-        &textLayout
-    );
-
-    if (fontUnderline)
-        textLayout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)text.size() });
-    if (fontStrike)
-        textLayout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 0, (UINT32)text.size() });
-
-    pRenderTarget->DrawTextLayout(
-        D2D1::Point2F(textArea.left, textArea.top),
-        textLayout.Get(),
-        pBrush.Get()
-    );
-
-    DWRITE_TEXT_METRICS metrics{};
-    textLayout->GetMetrics(&metrics);
-
-    pRenderTarget->EndDraw();
+    SizeF metrics = gGraphicsBackend->MeasureText(text, fontDesc, textArea);
 
     isWritingText = false;
 
@@ -690,20 +619,29 @@ void __stdcall TSelectTool(int xInitial, int yInitial) {
     }
 
     if (foundIndex == -1) {
-        // Clique em �rea vazia -> desseleciona
+        // Clique em área vazia -> desseleciona
         if (selectedAction) {
             TUnSelectTool();
         }
         return;
     }
 
-    // Se j� est� selecionada a mesma a��o, n�o faz nada
+    // Se já está selecionada a mesma ação, não faz nada
     if (selectedAction && selectedIndex == foundIndex) return;
 
-    // Seleciona a a��o encontrada
+    // Seleciona a ação encontrada
     selectedIndex = foundIndex;
     selectedActionId = Actions[foundIndex].Id;
     selectedAction = true;
+
+    //TODO: Recurso de edição de texto
+	//Se eu clicar novamente em uma ação já selecionada, e ela for do tipo TWrite, eu quero permitir editar o texto novamente, 
+    //então reseto selectedAction para false, e chamo TWriteToolCommitText para finalizar a edição anterior (caso exista) 
+    //e permitir uma nova edição
+
+	//TODO: Recurso de transformação (redimensionar e rotacionar)
+	//Detectar clique no icone das bordas da seleção, para iniciar redimensionamento.
+	//Para rotação detectar clique no ícone de rotação (girar em volta do próprio eixo).
 
     TRenderLayers();
 }
@@ -782,7 +720,7 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
     float deltaX = scaledX - centerX;
     float deltaY = scaledY - centerY;
 
-    // --- Nova parte: criar ACTION do tipo TMove (n�o alterar a a��o original) ---
+    // --- Nova parte: criar ACTION do tipo TMove (não alterar a ação original) ---
     ACTION moveAction;
     actionId++;
 
@@ -826,7 +764,7 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
         break;
 
     default:
-        // tipo n�o suportado para mover
+        // tipo não suportado para mover
         return;
     }
 
@@ -837,17 +775,21 @@ void __stdcall TMoveTool(int xInitial, int yInitial, int x, int y) {
         }
     }
 
-    // Insere a nova a��o TMove (para o mecanismo de undo/redo funcionar)
+    // Insere a nova ação TMove (para o mecanismo de undo/redo funcionar)
     Actions.push_back(moveAction);
 
-    // Atualiza a��es de paint vinculadas (se houver)
+    // Atualiza ações de paint vinculadas (se houver)
     selectedActionId = selected.Id; // garantir que TUpdatePaint use o id correto
     TUpdatePaint(deltaX, deltaY);
 
-    // Mant�m comportamento visual imediato: atualiza layers/render
+    // Mantém comportamento visual imediato: atualiza layers/render
     TUpdateLayers(layerIndex, CurrentFrameIndex);
     TRenderLayers();
 }
+
+void __stdcall TResizeTool(int x, int y) {}
+
+void __stdcall TRotateTool(float angle) {}
 
 void __stdcall TUnSelectTool() {
     selectedActionId = -1;
@@ -875,3 +817,4 @@ LRESULT CALLBACK TextEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     return CallWindowProc(oldEditProc, hwnd, msg, wParam, lParam);
 }
+

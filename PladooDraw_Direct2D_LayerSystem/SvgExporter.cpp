@@ -54,7 +54,7 @@ void ExportActionsToSvg(const std::vector<ACTION>& actions, const std::string& f
                         int x = static_cast<int>(vertice.x / pixelSizeRatio) * pixelSizeRatio * scaleFactor;
                         int y = static_cast<int>(vertice.y / pixelSizeRatio) * pixelSizeRatio * scaleFactor;                        
 
-                        D2D1_RECT_F pixel = D2D1::RectF(
+                        RectF pixel = MakeRectF(
                             static_cast<float>(x),
                             static_cast<float>(y),
                             static_cast<float>(x + pixelSizeRatio * scaleFactor),

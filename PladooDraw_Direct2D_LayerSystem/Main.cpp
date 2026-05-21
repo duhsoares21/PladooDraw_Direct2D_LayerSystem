@@ -14,6 +14,7 @@
 #include "SvgExporter.h"
 #include "Replay.h"
 #include "Animation.h"
+#include "BackendSelector.h"
 
 /* MAIN */
 
@@ -24,6 +25,10 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
 
         case DLL_PROCESS_DETACH:  
             CleanupSurfaceDial();  
+            if (gGraphicsBackend) {
+                gGraphicsBackend->Cleanup();
+                gGraphicsBackend.reset();
+            }
             HCleanup();  
             break;  
 
@@ -36,42 +41,9 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
 }
 
 void __stdcall Resize() {
-    if (!g_pSwapChain || !pRenderTarget) return;
-
-    // Release current target
-    pRenderTarget->SetTarget(nullptr);
-    pD2DTargetBitmap.Reset();  // Assuming pD2DTargetBitmap is your ComPtr<ID2D1Bitmap1>
-
-    // Resize swap chain
-    HRESULT hr = g_pSwapChain->ResizeBuffers(0, width * zoomFactor, height * zoomFactor, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
-    if (FAILED(hr)) {
-        // Log error (use HCreateLogData)
-        return;
+    if (gGraphicsBackend) {
+        gGraphicsBackend->ResizeDocument(width, height, zoomFactor);
     }
-
-    // Get new backbuffer
-    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
-    hr = g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    if (FAILED(hr)) return;
-
-    // Get current DPI
-    FLOAT dpiX, dpiY;
-    pRenderTarget->GetDpi(&dpiX, &dpiY);
-
-    // Create new bitmap from surface
-    D2D1_BITMAP_PROPERTIES1 bitmapProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        dpiX, dpiY
-    );
-    hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.GetAddressOf());
-    if (FAILED(hr)) return;
-
-    // Set new target
-    pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
-
-    // Update any transforms/DPI if needed
-    pRenderTarget->SetDpi(dpiX, dpiY);
 }
 
 HRESULT Initialize(HWND pmainHWND) {
@@ -349,6 +321,10 @@ int GetActiveLayersCount() {
     return HGetActiveLayersCount();
 }
 
+bool IsReplayAtEnd() {
+    return TIsReplayAtEnd();
+}
+
 int __stdcall IsLayerActive(int layer, int* isActive) {
     if (layers[layer].has_value()) {
         *isActive = layers[layer].value().isActive ? 1 : 0;
@@ -372,7 +348,16 @@ void ReorderLayerDown() {
 }
 
 void RenderActionToTarget(ACTION& action) {
-    HRenderAction(action, pRenderTarget, COLOR_UNDEFINED);
+    if (!gGraphicsBackend) {
+        return;
+    }
+
+    RenderSurfacePtr documentSurface = gGraphicsBackend->GetDocumentSurface();
+    if (!documentSurface) {
+        return;
+    }
+
+    HRenderAction(action, *documentSurface, std::nullopt);
 }
 
 void UpdateLayers(int layerIndexTarget = -1) {
@@ -507,6 +492,9 @@ void DeleteAction() {
 }
 
 void Cleanup() {
+    if (gGraphicsBackend) {
+        gGraphicsBackend->Cleanup();
+    }
     HCleanup(); 
 }
 

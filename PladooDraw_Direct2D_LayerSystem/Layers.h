@@ -1,8 +1,8 @@
 #pragma once
-#include "Base.h"
+#include "CoreBase.h"
 #include "Structs.h"
 
-extern Microsoft::WRL::ComPtr<ID2D1Bitmap1> CreateEmptyLayerBitmap();
+extern RenderData CreateEmptyLayerBitmap();
 
 extern int TLayersCount();
 extern HRESULT TAddLayer(bool fromFile, int currentLayer, int currentFrame);

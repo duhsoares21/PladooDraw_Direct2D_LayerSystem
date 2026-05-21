@@ -1,5 +1,6 @@
 #pragma once
-#include "Base.h"
+#include "CoreBase.h"
+#include "GraphicsBackend.h"
 #include "Structs.h"
 
 #define BTN_WIDTH_DEFAULT 120
@@ -12,7 +13,7 @@
 extern const int DX[4];
 extern const int DY[4];
 
-extern const D2D1_COLOR_F COLOR_UNDEFINED;
+extern const ColorRGBA COLOR_UNDEFINED;
 
 // Vari�veis globais
 extern std::unordered_map<std::pair<int, int>, COLORREF, PairHash> bitmapData;
@@ -26,28 +27,7 @@ extern HWND toolsHWND;
 extern HWND timelineHWND;
 extern HWND highlightFrame;
 extern HWND* hLayerButtons;
-
-extern Microsoft::WRL::ComPtr <ID2D1SolidColorBrush> pBrush;
-extern Microsoft::WRL::ComPtr<ID2D1Bitmap1> pD2DTargetBitmap;
-extern Microsoft::WRL::ComPtr<ID2D1Factory1> pD2DFactory;
-extern Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hWndLayerRenderTarget;
-extern Microsoft::WRL::ComPtr<ID3D11RenderTargetView> g_pRenderTargetView;
-extern Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTarget;
-extern Microsoft::WRL::ComPtr <ID2D1DeviceContext> pRenderTargetLayer;
-
-extern Microsoft::WRL::ComPtr<ID3D11Device> g_pD3DDevice;
-extern Microsoft::WRL::ComPtr<ID3D11DeviceContext> g_pD3DContext;
-extern Microsoft::WRL::ComPtr<IDXGISwapChain1> g_pSwapChain;
-extern Microsoft::WRL::ComPtr<ID2D1Device> g_pD2DDevice;
-extern Microsoft::WRL::ComPtr<IDXGIDevice1> g_dxgiDevice;
-extern Microsoft::WRL::ComPtr<IDXGIAdapter> g_adapter;
-extern Microsoft::WRL::ComPtr<IDXGIFactory2> g_dxgiFactory;
-
-extern Microsoft::WRL::ComPtr<IDCompositionDevice> g_pDCompDevice;
-extern Microsoft::WRL::ComPtr<IDCompositionTarget> g_pDCompTarget;
-extern Microsoft::WRL::ComPtr<IDCompositionVisual> g_pDCompVisual;
-
-extern Microsoft::WRL::ComPtr<IDWriteFactory> pDWriteFactory;
+extern std::unique_ptr<IGraphicsBackend> gGraphicsBackend;
 
 extern float logicalWidth;
 extern float logicalHeight;
@@ -58,16 +38,16 @@ extern int replayPartialStepCount;
 
 extern bool hideShadow;
 
-extern D2D1_ELLIPSE ellipse;
-extern D2D1_RECT_F rectangle;
-extern D2D1_RECT_F textArea;
-extern D2D1_RECT_F bitmapRect;
-extern D2D1_RECT_F prevRectangle;
-extern D2D1_RECT_F prevTextArea;
-extern D2D1_ELLIPSE prevEllipse;
+extern EllipseF ellipse;
+extern RectF rectangle;
+extern RectF textArea;
+extern RectF bitmapRect;
+extern RectF prevRectangle;
+extern RectF prevTextArea;
+extern EllipseF prevEllipse;
 
-extern D2D1_POINT_2F startPoint;
-extern D2D1_POINT_2F endPoint;
+extern PointF startPoint;
+extern PointF endPoint;
 
 extern COLORREF currentColor;
 
@@ -106,8 +86,6 @@ extern bool isWritingText;
 extern WNDPROC oldEditProc;
 
 extern std::string loadedFileName;
-
-extern Microsoft::WRL::ComPtr<IDWriteTextFormat> pTextFormat;
 
 extern std::vector<LayerOrder> layersOrder;
 extern std::vector<Layer> layerBitmaps;

@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "Animation.h"
+#include "Helpers.h"
 #include "Tools.h"
 #include "Layers.h"
 
@@ -35,18 +36,18 @@ void TCreateAnimationFrame(int LayerIndex, int FrameIndex) {
     HWND animationFrame = HCreateTimelineFrameButton(FrameIndex);
     RenderData renderData = HCreateRenderDataHWND(animationFrame);
 
-    renderData.deviceContext->BeginDraw();
-    renderData.deviceContext->SetTarget(renderData.bitmap.Get());
-    renderData.deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
-    renderData.deviceContext->EndDraw();
+    if (renderData.surfaceHandle) {
+        renderData.surfaceHandle->BeginDraw();
+        renderData.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+        renderData.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
+        renderData.surfaceHandle->EndDraw();
+    }
 
     TimelineFrameButtons.push_back(TimelineFrameButton{
         layerIndex,
         FrameIndex,
         animationFrame,
-        renderData.deviceContext,
-        renderData.swapChain,
-        renderData.bitmap
+        renderData.surfaceHandle
     });
 
     auto it = std::find_if(
@@ -80,7 +81,9 @@ void TCreateAnimationFrame(int LayerIndex, int FrameIndex) {
         }
     }
 
-    renderData.swapChain->Present(1, 0);
+    if (renderData.surfaceHandle) {
+        renderData.surfaceHandle->Present(1);
+    }
 
     TReorganizeFrames();
 }
@@ -142,9 +145,9 @@ void TRemoveAnimationFrame() {
     TReorganizeFrames();
 }
 
-void TRenderFrameThumbnail(int frameIndex, ComPtr<ID2D1DeviceContext> dc) {
-    dc->SetTransform(D2D1::Matrix3x2F::Identity());
-    dc->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+void TRenderFrameThumbnail(int frameIndex, IRenderSurface& surface) {
+    surface.SetTransform(MakeIdentityMatrix3x2());
+    surface.Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
 
     float canvasW = width;
     float canvasH = height;
@@ -152,12 +155,11 @@ void TRenderFrameThumbnail(int frameIndex, ComPtr<ID2D1DeviceContext> dc) {
     float thumbH = BTN_HEIGHT_DEFAULT;
     float scale = min(thumbW / canvasW, thumbH / canvasH);
 
-    D2D1_MATRIX_3X2_F scaleMatrix = D2D1::Matrix3x2F::Scale(scale, scale);
-    dc->SetTransform(scaleMatrix);
+    surface.SetTransform(MakeScaleMatrix3x2(scale, scale));
 
     for (auto& action : Actions) {
         if (action.FrameIndex == frameIndex && action.Tool != TLayer) {
-            HRenderAction(action, dc, COLOR_UNDEFINED);
+            HRenderAction(action, surface);
         }
     }
 }
@@ -172,17 +174,15 @@ void TUpdateAnimation() {
 
         auto& frame = frameOpt.value();
 
-        // prepara o contexto do botão do frame
-        frame.deviceContext->BeginDraw();
-        frame.deviceContext->SetTarget(frame.bitmap.Get());
-        frame.deviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
-        frame.deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+        if (!frame.surfaceHandle) continue;
+        frame.surfaceHandle->BeginDraw();
+        frame.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+        frame.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
 
-        // desenha as layers do frame atual
-        TRenderFrameThumbnail(static_cast<int>(frameIndex), frame.deviceContext);
+        TRenderFrameThumbnail(static_cast<int>(frameIndex), *frame.surfaceHandle);
 
-        frame.deviceContext->EndDraw();
-        frame.swapChain->Present(1, 0);
+        frame.surfaceHandle->EndDraw();
+        frame.surfaceHandle->Present(1);
     }
 }
 
@@ -190,13 +190,13 @@ void TRenderAnimation() {
     for (auto& frameOpt : TimelineFrameButtons) {
         if (!frameOpt.has_value()) continue;
         auto& frame = frameOpt.value();
+        if (!frame.surfaceHandle) continue;
 
-        frame.deviceContext->BeginDraw();
-        frame.deviceContext->SetTarget(frame.bitmap.Get());
-        frame.deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
-        TRenderFrameThumbnail(frame.FrameIndex, frame.deviceContext);
-        frame.deviceContext->EndDraw();
-        frame.swapChain->Present(1, 0);
+        frame.surfaceHandle->BeginDraw();
+        frame.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
+        TRenderFrameThumbnail(frame.FrameIndex, *frame.surfaceHandle);
+        frame.surfaceHandle->EndDraw();
+        frame.surfaceHandle->Present(1);
     }
 }
 

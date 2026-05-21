@@ -10,19 +10,19 @@ void TCreateReplayFrame(int FrameIndex) {
 
     RenderData renderData = HCreateRenderDataHWND(replayFrame);
 
-    renderData.deviceContext->SetTarget(renderData.bitmap.Get());
-
     TimelineFrameButtons.push_back(TimelineFrameButton{
         layerIndex,
         FrameIndex,
         replayFrame,
-        renderData.deviceContext,
-        renderData.swapChain,
-        renderData.bitmap
+        renderData.surfaceHandle
     });
 
-    renderData.deviceContext->BeginDraw();
-    renderData.deviceContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+    if (!renderData.surfaceHandle) {
+        return;
+    }
+
+    renderData.surfaceHandle->BeginDraw();
+    renderData.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
 
     float canvasW = width;
     float canvasH = height;
@@ -31,9 +31,7 @@ void TCreateReplayFrame(int FrameIndex) {
 
     float scale = min(thumbW / canvasW, thumbH / canvasH);
 
-    renderData.deviceContext->SetTransform(
-        D2D1::Matrix3x2F::Scale(scale, scale)
-    );
+    renderData.surfaceHandle->SetTransform(MakeScaleMatrix3x2(scale, scale));
 
     std::vector<ACTION> FilteredRedoActions;
 
@@ -47,66 +45,44 @@ void TCreateReplayFrame(int FrameIndex) {
     // Cada botão representa um ACTION inteiro (não steps)
     for (int i = 0; i < FrameIndex && i < total; i++) {
         int idx = total - 1 - i;
-        HRenderAction(FilteredRedoActions[idx], renderData.deviceContext, COLOR_UNDEFINED);
+        HRenderAction(FilteredRedoActions[idx], *renderData.surfaceHandle);
     }
 
-    renderData.deviceContext->EndDraw();
-
-    if (renderData.swapChain) {
-        renderData.swapChain->Present(1, 0);
-    }
+    renderData.surfaceHandle->EndDraw();
+    renderData.surfaceHandle->Present(1);
 }
 
 void TReplayClearLayers() {
     for (const auto& layer : layerBitmaps) {
-        if (layer.pBitmap) {
-            pRenderTarget->BeginDraw();
-            pRenderTarget->SetTarget(layer.pBitmap.Get());
-            pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
-            pRenderTarget->EndDraw();
+        if (layer.surfaceHandle) {
+            layer.surfaceHandle->BeginDraw();
+            layer.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+            layer.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+            layer.surfaceHandle->EndDraw();
         }
     }
 }
 
 void TReplayRender() {
-    Microsoft::WRL::ComPtr<IDXGISurface> backBuffer;
-    HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(IDXGISurface), &backBuffer);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"TRenderLayers: Failed to get backbuffer, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+    if (!gGraphicsBackend) {
         return;
     }
 
-    // Get DPI from pRenderTarget
-    FLOAT dpiX, dpiY;
-    pRenderTarget->GetDpi(&dpiX, &dpiY);
-
-    // Create bitmap from backbuffer
-    D2D1_BITMAP_PROPERTIES1 bitmapProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        dpiX, dpiY
-    );
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> targetBitmap;
-    hr = pRenderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bitmapProps, pD2DTargetBitmap.ReleaseAndGetAddressOf());
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"TRenderLayers: Failed to create bitmap from DXGI surface, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
+    RenderSurfacePtr documentSurface = gGraphicsBackend->GetDocumentSurface();
+    if (!documentSurface) {
         return;
     }
 
-    pRenderTarget->SetTarget(pD2DTargetBitmap.Get());
-
-    pRenderTarget->BeginDraw();
-    pRenderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-    pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f));
+    documentSurface->BeginDraw();
+    documentSurface->SetTransform(MakeIdentityMatrix3x2());
+    documentSurface->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 1.0f });
 
     for (int j = 0; j < (int)Actions.size(); j++) {
-        HRenderAction(Actions[j], pRenderTarget, COLOR_UNDEFINED);
+        HRenderAction(Actions[j], *documentSurface);
     }
 
-    pRenderTarget->EndDraw();
-
-    g_pSwapChain->Present(0, 0);
+    documentSurface->EndDraw();
+    documentSurface->Present(0);
 }
 
 void TEditFromThisPoint() {
@@ -207,4 +183,8 @@ void TReplayForward() {
 
         TReplayRender();
     }
+}
+
+bool TIsReplayAtEnd() {
+    return RedoActions.empty();
 }

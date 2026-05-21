@@ -1,6 +1,6 @@
 #pragma once
 #include "Animation.h"
-#include "Base.h"
+#include "CoreBase.h"
 #include "Constants.h"
 #include "Helpers.h"
 #include "Layers.h"

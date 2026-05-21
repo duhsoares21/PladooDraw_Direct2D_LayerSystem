@@ -73,13 +73,13 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <OutDir>..\..\..\Executable\PladooDraw\Debug</OutDir>
+    <OutDir>..\..\..\Executable\PladooDraw\Debug\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <OutDir>..\..\PladooDraw\Release</OutDir>
+    <OutDir>..\..\PladooDraw\Release\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>..\..\..\Executable\PladooDraw\Debug</OutDir>
+    <OutDir>..\..\..\Executable\PladooDraw\Debug\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -164,12 +164,24 @@
   <ItemGroup>
     <ClInclude Include="Actions.h" />
     <ClInclude Include="Animation.h" />
-    <ClInclude Include="Base.h" />
+    <ClInclude Include="BackendSelector.h" />
+    <ClInclude Include="Direct2DBase.h" />
     <ClInclude Include="Constants.h" />
+    <ClInclude Include="CoreBase.h" />
+    <ClInclude Include="Direct2DBackend.h" />
+    <ClInclude Include="Direct2DBackendState.h" />
+    <ClInclude Include="OpenGLBackendV2.h" />
+    <ClInclude Include="OpenGLBackendV2State.h" />
+    <ClInclude Include="OpenGLBaseV2.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="GraphicsBackend.h" />
+    <ClInclude Include="GraphicsFont.h" />
+    <ClInclude Include="GraphicsTypes.h" />
     <ClInclude Include="Helpers.h" />
     <ClInclude Include="Layers.h" />
     <ClInclude Include="Main.h" />
+    <ClInclude Include="OpenGLBackend.h" />
+    <ClInclude Include="OpenGLBackendState.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Render.h" />
     <ClInclude Include="Replay.h" />
@@ -185,8 +197,13 @@
   <ItemGroup>
     <ClCompile Include="Actions.cpp" />
     <ClCompile Include="Animation.cpp" />
+    <ClCompile Include="BackendSelector.cpp" />
     <ClCompile Include="Constants.cpp" />
+    <ClCompile Include="Direct2DBackend.cpp" />
+    <ClCompile Include="Direct2DBackendState.cpp" />
     <ClCompile Include="Helpers.cpp" />
+    <ClCompile Include="OpenGLBackendV2.cpp" />
+    <ClCompile Include="OpenGLBackendV2State.cpp" />
     <ClCompile Include="Layers.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="pch.cpp">

@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "Base.h"
+#include "CoreBase.h"
 #include "Constants.h"
 #include "Helpers.h"
 #include "Layers.h"
@@ -349,7 +349,9 @@ void LoadBinaryProject(const std::wstring& filename) {
 
         for (size_t i = 0; i < layerCount; i++) {
             if (tempLayers[i].has_value()) {
-                tempLayers[i].value().pBitmap = CreateEmptyLayerBitmap();
+                RenderData renderData = CreateEmptyLayerBitmap();
+                tempLayers[i].value().surfaceHandle = renderData.surfaceHandle;
+                tempLayers[i].value().bitmapHandle = renderData.bitmapHandle;
                 if (tempLayers[i].value().isActive){
                     if (tempLayers[i].value().FrameIndex == 0) {
                         TAddLayerButton(tempLayers[i].value().LayerID, true);
@@ -362,14 +364,22 @@ void LoadBinaryProject(const std::wstring& filename) {
 
     for (size_t i = 0; i < tempLayers.size(); ++i) {
         if (tempLayers[i].has_value()) {
-            Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap = CreateEmptyLayerBitmap();
+            RenderData renderData = CreateEmptyLayerBitmap();
+            if (renderData.surfaceHandle) {
+                renderData.surfaceHandle->BeginDraw();
+                renderData.surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
+                renderData.surfaceHandle->Clear(ColorRGBA{ 1.0f, 1.0f, 1.0f, 0.0f });
+                renderData.surfaceHandle->EndDraw();
+            }
 
-            pRenderTarget->SetTarget(pBitmap.Get());
-            pRenderTarget->BeginDraw();
-            pRenderTarget->Clear(D2D1::ColorF(1, 1, 1, 0));
-            pRenderTarget->EndDraw();
-
-            Layer layer = { tempLayers[i].value().LayerID, tempLayers[i].value().FrameIndex, true, true, pBitmap };
+            Layer layer = {
+                tempLayers[i].value().LayerID,
+                tempLayers[i].value().FrameIndex,
+                true,
+                true,
+                renderData.surfaceHandle,
+                renderData.bitmapHandle
+            };
             layers.emplace_back(layer);
         }
         else

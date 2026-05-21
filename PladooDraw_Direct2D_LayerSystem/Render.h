@@ -1,5 +1,5 @@
 #pragma once
-#include "Base.h"
+#include "CoreBase.h"
 
 extern HRESULT TInitialize(HWND pmainHWND);
 extern HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio, int pBtnWidth, int pBtnHeight);
@@ -9,5 +9,3 @@ extern HRESULT TInitializeLayers(HWND pLayerWindow, HWND pLayers, HWND pControlB
 extern HRESULT TInitializeTools(HWND hWnd);
 extern HRESULT TInitializeTimeline(HWND hWnd);
 extern HRESULT TInitializeLayersButtons(HWND* buttonsHwnd);
-extern HRESULT TCreateRender();
-extern DXGI_SWAP_CHAIN_DESC1 TSetSwapChainDescription(int sizeW, int sizeH, DXGI_ALPHA_MODE AlphaMode);

@@ -1,5 +1,7 @@
 #pragma once
-#include "Base.h"
+#include "CoreBase.h"
+#include "GraphicsBackend.h"
+#include "GraphicsTypes.h"
 
 struct VERTICE {
     float x;
@@ -12,8 +14,8 @@ struct EDGE {
 };
 
 struct LINE {
-    D2D1_POINT_2F startPoint;
-    D2D1_POINT_2F endPoint;
+    PointF startPoint;
+    PointF endPoint;
 };
 
 struct FLOATPOINT {
@@ -51,9 +53,9 @@ struct ACTION {
     int Layer;
     int FrameIndex;
     int isLayerVisible;
-    D2D1_RECT_F Position;
+    RectF Position;
     EDGE FreeForm;
-    D2D1_ELLIPSE Ellipse;
+    EllipseF Ellipse;
     COLORREF FillColor;
     COLORREF Color;
     LINE Line;
@@ -88,7 +90,8 @@ struct Layer {
     int FrameIndex;
     bool isActive;
     bool isVisible;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> pBitmap;
+    RenderSurfacePtr surfaceHandle;
+    BitmapSurfacePtr bitmapHandle;
 };
 
 struct LayerOrder {
@@ -102,7 +105,7 @@ struct LineData {
 };
 
 struct LineGeometry {
-    std::vector<D2D1_POINT_2F> closedLoop;
+    std::vector<PointF> closedLoop;
     COLORREF fillColor;
 };
 
@@ -128,18 +131,15 @@ struct LayerButton {
     int LayerID;
     int FrameIndex;
     HWND button;
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
     bool isActive;
+    RenderSurfacePtr surfaceHandle;
 };
 
 struct TimelineFrameButton {
     int LayerIndex;
     int FrameIndex; 
     HWND frame;
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext;
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
-    ComPtr<ID2D1Bitmap1> bitmap;
+    RenderSurfacePtr surfaceHandle;
 };
 
 struct PairHash {
@@ -151,9 +151,3 @@ struct PairHash {
     }
 };
 
-struct RenderData {
-    D2D1_SIZE_U size;
-    ComPtr<ID2D1DeviceContext> deviceContext;
-    ComPtr<IDXGISwapChain1> swapChain;
-    ComPtr<ID2D1Bitmap1> bitmap;
-};

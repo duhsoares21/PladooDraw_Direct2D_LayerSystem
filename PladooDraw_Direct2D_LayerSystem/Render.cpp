@@ -1,6 +1,7 @@
 #include "pch.h"
-#include "Base.h"
+#include "CoreBase.h"
 #include "Constants.h"
+#include "BackendSelector.h"
 #include "Layers.h"
 #include "Render.h"
 #include "SurfaceDial.h"
@@ -11,29 +12,11 @@
 HRESULT TInitialize(HWND pmainHWND) {
     mainHWND = pmainHWND;
 
-    HRESULT hr = RoInitialize(RO_INIT_SINGLETHREADED);
-
-    if (FAILED(hr)) {
-        // Handle the error, for example, by logging or returning FALSE  
-        MessageBox(NULL, L"Failed to initialize Windows Runtime", L"Error", MB_OK | MB_ICONERROR);
-        return FALSE;
-    }
-    
-    D2D1_FACTORY_OPTIONS options = { D2D1_DEBUG_LEVEL_INFORMATION };
-    HRESULT factoryResult = D2D1CreateFactory(
-        D2D1_FACTORY_TYPE_MULTI_THREADED,
-        __uuidof(ID2D1Factory1),
-        &options,
-        reinterpret_cast<void**>(pD2DFactory.GetAddressOf())
-    );
-
-    if (FAILED(factoryResult)) {
-        MessageBox(pmainHWND, L"Erro ao criar Factory", L"Erro", MB_OK);
-            
-        return factoryResult;
+    if (!gGraphicsBackend) {
+        gGraphicsBackend = CreateGraphicsBackend();
     }
 
-    return S_OK;
+    return gGraphicsBackend ? gGraphicsBackend->InitializeMainWindow(pmainHWND) : E_FAIL;
 }
 
 HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRatio, int pBtnWidth, int pBtnHeight) {
@@ -76,69 +59,15 @@ HRESULT TInitializeDocument(HWND hWnd, int pWidth, int pHeight, int pPixelSizeRa
         return E_INVALIDARG;
     }
 
-    UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-    #ifdef _DEBUG
-        creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
-    #endif
-
-    D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
-    D3D_FEATURE_LEVEL featureLevel;
-    HRESULT hr = D3D11CreateDevice(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, creationFlags,
-        featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
-        &g_pD3DDevice, &featureLevel, &g_pD3DContext
-    );
-
-    if (FAILED(hr)) {
-        hr = D3D11CreateDevice(
-            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, creationFlags,
-            featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
-            &g_pD3DDevice, &featureLevel, &g_pD3DContext
-        );
-        if (FAILED(hr)) {
-            MessageBox(hWnd, L"Failed to create D3D11 device", L"Error", MB_OK);
-            return hr;
-        }
+    if (!gGraphicsBackend) {
+        gGraphicsBackend = CreateGraphicsBackend();
     }
 
-    hr = TCreateRender();
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = TSetSwapChainDescription(width, height, DXGI_ALPHA_MODE_IGNORE);
-
-    hr = g_dxgiFactory->CreateSwapChainForHwnd(g_pD3DDevice.Get(), hWnd, &swapDesc, nullptr, nullptr, &g_pSwapChain);
-    
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = g_dxgiFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    if (!g_pSwapChain) {
-        return E_FAIL;
-    }
-
-    CreateGlobalRenderBitmap();
-
-    return S_OK;
+    return gGraphicsBackend ? gGraphicsBackend->InitializeDocument(hWnd, pWidth, pHeight, pPixelSizeRatio, pBtnWidth, pBtnHeight) : E_FAIL;
 }
 
 HRESULT TInitializeWrite() {
-    HRESULT hr = DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(pDWriteFactory.GetAddressOf())
-    );
-    if (FAILED(hr)) {
-        MessageBox(NULL, L"Failed to create DirectWrite factory", L"Error", MB_OK);
-    }
-
-    return S_OK;
+    return gGraphicsBackend ? gGraphicsBackend->InitializeText() : E_FAIL;
 }
 
 HRESULT TInitializeLayerRenderPreview() {
@@ -178,49 +107,3 @@ HRESULT TInitializeLayersButtons(HWND* buttonsHwnd) {
     return S_OK;
 }
 
-HRESULT TCreateRender() {
-
-    HRESULT hr = g_pD3DDevice.As(&g_dxgiDevice);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    hr = pD2DFactory->CreateDevice(g_dxgiDevice.Get(), &g_pD2DDevice);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pRenderTarget);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    g_dxgiDevice->GetAdapter(&g_adapter);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    g_adapter->GetParent(__uuidof(IDXGIFactory2), &g_dxgiFactory);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    return S_OK;
-}
-
-DXGI_SWAP_CHAIN_DESC1 TSetSwapChainDescription(int sizeW, int sizeH, DXGI_ALPHA_MODE AlphaMode) {
-    DXGI_SWAP_CHAIN_DESC1 swapDesc = {};
-    swapDesc.Width = sizeW;
-    swapDesc.Height = sizeH;
-    swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = 1;
-    swapDesc.SampleDesc.Quality = 0;
-    swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapDesc.BufferCount = 2;
-    swapDesc.Scaling = DXGI_SCALING_STRETCH;
-    swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    swapDesc.AlphaMode = AlphaMode;
-    swapDesc.Flags = 0;
-
-    return swapDesc;
-}

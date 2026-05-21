@@ -6,10 +6,6 @@ void THandleMouseUp() {
     if (!layers[layerIndex].has_value()) return;
 
     if (isDrawingRectangle || isDrawingEllipse || isDrawingLine || isDrawingWindowText) {
-
-        ComPtr<ID2D1SolidColorBrush> brush;
-        pRenderTarget->CreateSolidColorBrush(HGetRGBColor(currentColor), &brush);
-
         auto it = std::find_if(
             layers.begin(),
             layers.end(),
@@ -18,19 +14,24 @@ void THandleMouseUp() {
             }
         );
 
-        pRenderTarget->SetTarget(it->value().pBitmap.Get());
-        pRenderTarget->BeginDraw();
+        if (it == layers.end() || !it->has_value() || !it->value().surfaceHandle) {
+            return;
+        }
+
+        ColorRGBA color = HGetRGBAColor(currentColor);
+        it->value().surfaceHandle->BeginDraw();
+        it->value().surfaceHandle->SetTransform(MakeIdentityMatrix3x2());
 
         ACTION action;
 
         if (isDrawingRectangle) {
-            pRenderTarget->PushAxisAlignedClip(rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            pRenderTarget->FillRectangle(rectangle, brush.Get());
-            pRenderTarget->PopAxisAlignedClip();
+            it->value().surfaceHandle->PushClip(rectangle);
+            it->value().surfaceHandle->FillRect(rectangle, color);
+            it->value().surfaceHandle->PopClip();
 
             actionId++;
 
-			action.Id = actionId;
+            action.Id = actionId;
             action.Tool = TRectangle;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
@@ -38,15 +39,15 @@ void THandleMouseUp() {
             action.Color = currentColor;
             action.IsFilled = false;
 
-            rectangle = D2D1::RectF(0, 0, 0, 0);
+            rectangle = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
         }
 
         if (isDrawingEllipse) {
-            pRenderTarget->FillEllipse(ellipse, brush.Get());
+            it->value().surfaceHandle->FillEllipse(ellipse, color);
 
             actionId++;
 
-			action.Id = actionId;
+            action.Id = actionId;
             action.Tool = TEllipse;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
@@ -55,15 +56,15 @@ void THandleMouseUp() {
             action.Color = currentColor;
             action.IsFilled = false;
 
-            ellipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
+            ellipse = MakeEllipseF(MakePointF(0.0f, 0.0f), 0.0f, 0.0f);
         }
 
         if (isDrawingLine) {
-            pRenderTarget->DrawLine(startPoint, endPoint, brush.Get(), currentBrushSize, nullptr);
+            it->value().surfaceHandle->DrawLine(startPoint, endPoint, color, currentBrushSize);
 
             actionId++;
 
-			action.Id = actionId;
+            action.Id = actionId;
             action.Tool = TLine;
             action.Layer = layerIndex;
             action.FrameIndex = CurrentFrameIndex;
@@ -91,15 +92,16 @@ void THandleMouseUp() {
             }
         }
 
-        pRenderTarget->EndDraw();
+        it->value().surfaceHandle->EndDraw();
 
         if (isDrawingRectangle || isDrawingEllipse || isDrawingLine) {
-            layersOrder.pop_back();
-            if (layers[TLayersCount()].has_value()) {
-                layers[TLayersCount()].reset();
-            }
-            layers.pop_back();
-            Actions.pop_back();
+            // The preview layer is always the last entry added by TAddLayer during drag.
+            // Do NOT use TLayersCount() as an index - it returns max(LayerID)+1 which
+            // is unrelated to vector size and causes out-of-bounds access.
+            if (!layersOrder.empty()) layersOrder.pop_back();
+            if (!layers.empty() && layers.back().has_value()) layers.back().reset();
+            if (!layers.empty()) layers.pop_back();
+            if (!Actions.empty()) Actions.pop_back();
 
             isDrawingRectangle = false;
             isDrawingEllipse = false;
@@ -118,7 +120,7 @@ void THandleMouseUp() {
         actionId++;
 
         ACTION action;
-		action.Id = actionId;
+        action.Id = actionId;
         action.Tool = TBrush;
         action.Layer = layerIndex;
         action.FrameIndex = CurrentFrameIndex;
@@ -138,12 +140,12 @@ void THandleMouseUp() {
         isDrawingBrush = false;
     }
 
-    startPoint = D2D1::Point2F(0, 0);
-    endPoint = D2D1::Point2F(0, 0);
+    startPoint = MakePointF(0.0f, 0.0f);
+    endPoint = MakePointF(0.0f, 0.0f);
 
-    bitmapRect = D2D1::RectF(0, 0, 0, 0);
-    prevRectangle = D2D1::RectF(0, 0, 0, 0);
-    prevEllipse = D2D1::Ellipse(D2D1::Point2F(0, 0), 0, 0);
+    bitmapRect = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+    prevRectangle = MakeRectF(0.0f, 0.0f, 0.0f, 0.0f);
+    prevEllipse = MakeEllipseF(MakePointF(0.0f, 0.0f), 0.0f, 0.0f);
     prevLeft = -1;
     prevTop = -1;
 
@@ -151,7 +153,7 @@ void THandleMouseUp() {
         //AQUI EU VOU ARMAZENAR A AÇÃO DO TIPO TPosition em UNDO(ACTIONS) contendo SelectedInitialPosition
         TUnSelectTool();
     }*/
-    
+
     TUpdateLayers(layerIndex, CurrentFrameIndex);
 
     if (isAnimationMode)
@@ -214,7 +216,7 @@ void TUndo() {
 
             if (originalIt != Actions.rend()) {
                 // Move a ação original para RedoActions
-				originalIt->LastMovedPosition = false;
+                originalIt->LastMovedPosition = false;
                 RedoActions.push_back(*originalIt);
                 Actions.erase(std::prev(originalIt.base()));
             }
@@ -229,7 +231,7 @@ void TUndo() {
 
             if (NewIt != Actions.rend()) {
                 NewIt->LastMovedPosition = true;
-                
+
                 auto TMoveIT = std::find_if(
                     Actions.begin(),
                     Actions.end(),
@@ -241,7 +243,7 @@ void TUndo() {
                 //DELTA delta = CalculateMovementDelta(NewIt->Position.left, NewIt->Position.top, &(*NewIt), &(*TMoveIT));
                 //TUpdatePaint(delta.deltaX, delta.deltaY);
 
-				bool hasPaintActive = false;
+                bool hasPaintActive = false;
 
                 for (auto& action : Actions) {
                     if (action.PaintTarget == selectedActionId) {
@@ -271,7 +273,6 @@ void TUndo() {
                     }
                 }
 
-                HRenderAction(*NewIt, pRenderTarget, COLOR_UNDEFINED);
             }
         }
         else {
@@ -292,7 +293,7 @@ void TUndo() {
                     ShowWindow(LayerButtons[lastAction.Layer].value().button, SW_HIDE);
                 }
             }
-        }        
+        }
     }
 
     for (size_t i = 0; i < layers.size(); i++)
@@ -311,7 +312,7 @@ void TUndo() {
 
 void TRedo() {
     if (RedoActions.empty()) return; // nada a refazer
-                
+
     // Pega a última ação adicionada ao RedoActions (LIFO)
     ACTION lastAction = RedoActions.back();
 
@@ -343,8 +344,6 @@ void TRedo() {
         if (redoIt != RedoActions.rend()) {
             // Atualiza para true
             redoIt->LastMovedPosition = true;
-			HRenderAction(*redoIt, pRenderTarget, COLOR_UNDEFINED);
-
             // Move de volta para Actions
             Actions.push_back(*redoIt);
 
@@ -385,7 +384,7 @@ void TRedo() {
 
 /* MOVE TOOL AUX */
 
-DELTA CalculateMovementDelta(int x, int y, ACTION *targetAction, ACTION *selected) {
+DELTA CalculateMovementDelta(int x, int y, ACTION* targetAction, ACTION* selected) {
     // Scale coordinates
     float scaledX = static_cast<float>(x) / zoomFactor;
     float scaledY = static_cast<float>(y) / zoomFactor;
@@ -434,7 +433,7 @@ DELTA CalculateMovementDelta(int x, int y, ACTION *targetAction, ACTION *selecte
         break;
     }
 
-    DELTA delta = {-1, -1};
+    DELTA delta = { -1, -1 };
 
     if (minX == FLT_MAX || minY == FLT_MAX) {
         return delta;
@@ -446,9 +445,9 @@ DELTA CalculateMovementDelta(int x, int y, ACTION *targetAction, ACTION *selecte
     deltaX = scaledX - centerX;
     deltaY = scaledY - centerY;
 
-	delta = { deltaX, deltaY };
+    delta = { deltaX, deltaY };
 
-	return delta;
+    return delta;
 }
 
 bool IsPointNearSegment(float px, float py, float x1, float y1, float x2, float y2, float threshold = 3.0f) {
@@ -518,17 +517,17 @@ bool IsPointNearEdge(const std::vector<VERTICE> vertices, float px, float py) {
     return false;
 }
 
-bool IsPointInsideRect(const D2D1_RECT_F& rect, float x, float y) {
+bool IsPointInsideRect(const RectF& rect, float x, float y) {
     return (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
 }
 
-bool IsPointInsideEllipse(const D2D1_ELLIPSE& ellipse, float x, float y) {
+bool IsPointInsideEllipse(const EllipseF& ellipse, float x, float y) {
     float dx = x - ellipse.point.x;
     float dy = y - ellipse.point.y;
     return ((dx * dx) / (ellipse.radiusX * ellipse.radiusX) + (dy * dy) / (ellipse.radiusY * ellipse.radiusY)) <= 1.0f;
 }
 
-bool IsPointNearLine(const D2D1_RECT_F& lineRect, float x, float y, float tolerance) {
+bool IsPointNearLine(const RectF& lineRect, float x, float y, float tolerance) {
     // lineRect.left/top = ponto A
     // lineRect.right/bottom = ponto B
     float x1 = lineRect.left, y1 = lineRect.top;
@@ -608,117 +607,24 @@ bool HitTestAction(const ACTION& action, float x, float y) {
     }
 
     case TRectangle:
-        return IsPointInsideRect(D2D1::RectF(action.Position.left, action.Position.top, action.Position.right, action.Position.bottom), x, y);
+        return IsPointInsideRect(action.Position, x, y);
     case TWrite:
         return IsPointInsideText(action, x, y);
     case TEllipse:
-        return IsPointInsideEllipse(D2D1::Ellipse(D2D1::Point2F(action.Ellipse.point.x, action.Ellipse.point.y), action.Ellipse.radiusX, action.Ellipse.radiusY), x, y);
+        return IsPointInsideEllipse(action.Ellipse, x, y);
     case TLine:
-        return IsPointNearLine(D2D1::RectF(action.Position.left, action.Position.top, action.Position.right, action.Position.bottom), x, y, 5.0f); // 5 px tolerance
+        return IsPointNearLine(action.Position, x, y, 5.0f);
     default:
         return false;
     }
 }
 
 std::vector<COLORREF> CaptureCanvasPixels() {
-    // Validate render target and dimensions
-    if (!pRenderTarget || logicalWidth <= 0 || logicalHeight <= 0) {
-        OutputDebugStringW(L"CaptureCanvasPixels: Invalid render target or dimensions\n");
+    if (!gGraphicsBackend) {
         return {};
     }
 
-    // Create a render-target bitmap (GPU-resident)
-    D2D1_SIZE_U size = D2D1::SizeU(static_cast<UINT32>(logicalWidth), static_cast<UINT32>(logicalHeight));
-    D2D1_BITMAP_PROPERTIES1 renderBitmapProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        96.0f, 96.0f // Standard DPI
-    );
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> renderBitmap;
-    HRESULT hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &renderBitmapProps, &renderBitmap);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"CaptureCanvasPixels: Failed to create render bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return {};
-    }
-
-    // Create a temporary device context for rendering
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> captureContext;
-    hr = g_pD2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &captureContext);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"CaptureCanvasPixels: Failed to create device context, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return {};
-    }
-
-    // Render layers to the render bitmap
-    captureContext->SetTarget(renderBitmap.Get());
-    captureContext->BeginDraw();
-    captureContext->Clear(D2D1::ColorF(D2D1::ColorF::White, 1.0f)); // Match TRenderLayers
-
-    D2D1_RECT_F destRect = D2D1::RectF(0, 0, logicalWidth, logicalHeight);
-
-    auto it = std::find_if(
-        layers.begin(),
-        layers.end(),
-        [](const std::optional<Layer>& optLayer) {
-            return optLayer.has_value() && optLayer->LayerID == layerIndex && optLayer->FrameIndex == CurrentFrameIndex;
-        }
-    );
-
-    if (it->has_value()) {
-        captureContext->DrawBitmap(it->value().pBitmap.Get(), destRect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
-    }
-
-    hr = captureContext->EndDraw();
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"CaptureCanvasPixels: EndDraw failed, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return {};
-    }
-
-    // Create a CPU-readable bitmap
-    D2D1_BITMAP_PROPERTIES1 cpuBitmapProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        96.0f, 96.0f
-    );
-
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> cpuBitmap;
-    hr = pRenderTarget->CreateBitmap(size, nullptr, 0, &cpuBitmapProps, &cpuBitmap);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"CaptureCanvasPixels: Failed to create CPU-readable bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return {};
-    }
-
-    // Copy render bitmap to CPU-readable bitmap
-    hr = cpuBitmap->CopyFromBitmap(nullptr, renderBitmap.Get(), nullptr);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"CaptureCanvasPixels: Failed to copy bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return {};
-    }
-
-    // Map the CPU-readable bitmap
-    D2D1_MAPPED_RECT mappedRect;
-    hr = cpuBitmap->Map(D2D1_MAP_OPTIONS_READ, &mappedRect);
-    if (FAILED(hr)) {
-        OutputDebugStringW((L"CaptureCanvasPixels: Failed to map CPU-readable bitmap, HRESULT: 0x" + std::to_wstring(hr) + L"\n").c_str());
-        return {};
-    }
-
-    // Convert to COLORREF (BGRA to RGB)
-    std::vector<COLORREF> pixels(static_cast<size_t>(logicalWidth) * logicalHeight);
-    BYTE* src = mappedRect.bits;
-    for (size_t i = 0; i < pixels.size(); ++i) {
-        BYTE b = src[i * 4 + 0];
-        BYTE g = src[i * 4 + 1];
-        BYTE r = src[i * 4 + 2];
-        BYTE a = src[i * 4 + 3];
-        pixels[i] = RGB(r, g, b); // Ignore alpha for COLORREF
-    }
-
-    cpuBitmap->Unmap();
-    OutputDebugStringW((L"CaptureCanvasPixels: Captured " + std::to_wstring(logicalWidth) + L"x" +
-        std::to_wstring(logicalHeight) + L" pixels\n").c_str());
-    return pixels;
+    return gGraphicsBackend->ReadDocumentPixels(static_cast<int>(logicalWidth), static_cast<int>(logicalHeight));
 }
 
 void AuxCopyAction() {
@@ -736,9 +642,9 @@ void AuxCopyAction() {
 }
 
 void AuxPasteAction() {
-	Clipboard.Id = ++actionId;
-	Clipboard.Layer = layerIndex;
-	Clipboard.FrameIndex = CurrentFrameIndex;
+    Clipboard.Id = ++actionId;
+    Clipboard.Layer = layerIndex;
+    Clipboard.FrameIndex = CurrentFrameIndex;
 
     Actions.push_back(Clipboard);
 
@@ -798,13 +704,13 @@ void AuxDeleteAction() {
                     }
                 ),
                 Actions.end()
-			);
+            );
         }
     }
 
     selectedIndex = -1;
     selectedActionId = -1;
 
-	TUpdateLayers(layerIndex, CurrentFrameIndex);
-	TRenderLayers();
+    TUpdateLayers(layerIndex, CurrentFrameIndex);
+    TRenderLayers();
 }
