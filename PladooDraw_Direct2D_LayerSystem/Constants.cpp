@@ -45,6 +45,7 @@ float logicalHeight = 0.0f;
 
 int lastActiveReplayFrame = 0;
 int g_scrollOffsetTimeline = 0;
+int replayPartialStepCount = 0;
 
 bool hideShadow = false;
 
@@ -82,6 +83,7 @@ int isReplayMode = 0;
 int isAnimationMode = 0;
 bool isPlayingAnimation = false;
 
+bool isMovingAction = false;
 bool isDrawingRectangle = false;
 bool isDrawingEllipse = false;
 bool isDrawingBrush = false;
@@ -111,6 +113,8 @@ std::vector<ACTION> ReplayRedoActions;
 std::vector<VERTICE> Vertices;
 std::vector<std::pair<int, int>> pixelsToFill;
 
+ACTION Clipboard;
+
 int width, height;
 int btnWidth = 90, btnHeight = 90;
 
@@ -121,6 +125,8 @@ std::vector<std::optional<TimelineFrameButton>> TimelineFrameButtons;
 
 POINT mouseLastClickPosition = { 0, 0 };
 
+int actionId = 0;
+int selectedActionId = -1;
 int selectedIndex = -1;
 bool selectedAction = false;
 

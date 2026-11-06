@@ -155,7 +155,7 @@ void TRenderFrameThumbnail(int frameIndex, ComPtr<ID2D1DeviceContext> dc) {
     D2D1_MATRIX_3X2_F scaleMatrix = D2D1::Matrix3x2F::Scale(scale, scale);
     dc->SetTransform(scaleMatrix);
 
-    for (const auto& action : Actions) {
+    for (auto& action : Actions) {
         if (action.FrameIndex == frameIndex && action.Tool != TLayer) {
             HRenderAction(action, dc, COLOR_UNDEFINED);
         }
@@ -242,7 +242,7 @@ void TPlayAnimation() {
 
     isPlayingAnimation = true;
 
-    if (counter < HGetActiveLayersCount())
+    if (counter <= HGetMaxFrameIndex())
     {
         TSetAnimationFrame(counter);
 

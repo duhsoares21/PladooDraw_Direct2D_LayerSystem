@@ -11,7 +11,15 @@
 /* LAYERS */
     
 int TLayersCount() {
-    return layers.size();
+    int total_layers = 0;
+
+    for (size_t i = 0; i < layers.size(); ++i) {
+        if (layers[i].value().LayerID > total_layers) {
+            total_layers = layers[i].value().LayerID;
+        }
+    }
+
+    return total_layers + 1;
 }
 
 void TUpdateLayerButtonsPosition() {
@@ -76,15 +84,15 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame
     pRenderTarget->EndDraw();
 
     if (currentFrame == -1) {
-        currentFrame = CurrentFrameIndex;
+        currentFrame = 0;
     }
 
     // Add to layers
     Layer layer = { currentLayer, currentFrame, true, true, pBitmap };
     layers.emplace_back(layer);
 
-    if (!fromFile) {
-        LayerOrder layerOrder = { static_cast<int>(layers.size()) - 1, static_cast<int>(layers.size()) - 1 };
+    if (!fromFile && currentFrame == 0) {
+        LayerOrder layerOrder = { TLayersCount() - 1, TLayersCount() - 1};
         layersOrder.emplace_back(layerOrder);
     }
 
@@ -96,6 +104,29 @@ HRESULT TAddLayer(bool fromFile = false, int currentLayer = -1, int currentFrame
         action.isLayerVisible = 1;
 
         Actions.push_back(action);
+    }
+
+    int currentLayerSize = layers.size();
+
+    for (size_t i = 0; i < currentLayerSize; ++i) {
+        if (!layers[i].has_value()) continue;
+
+        int frameindex = layers[i]->FrameIndex;
+
+        // Verifica se já existe um layer com o mesmo ID e FrameIndex
+        bool exists = std::any_of(
+            layers.begin(),
+            layers.end(),
+            [currentLayer, frameindex](const std::optional<Layer>& optLayer) {
+                return optLayer.has_value() &&
+                    optLayer->LayerID == currentLayer &&
+                    optLayer->FrameIndex == frameindex;
+            }
+        );
+
+        if (!exists) {
+            TAddLayer(false, currentLayer, frameindex);
+        }
     }
 
     return S_OK;
@@ -319,7 +350,7 @@ void TUpdateLayers(int layerIndexTarget = -1, int CurrentFrameIndexTarget = -1) 
     }
 
     if (CurrentFrameIndexTarget == -1) {
-        CurrentFrameIndexTarget == CurrentFrameIndex;
+        CurrentFrameIndexTarget = CurrentFrameIndex;
     }
 
     //GetCurrent Frame
@@ -355,7 +386,7 @@ void TUpdateLayers(int layerIndexTarget = -1, int CurrentFrameIndexTarget = -1) 
     pRenderTarget->BeginDraw();
     pRenderTarget->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
 
-    for (const auto& action : validActions) {
+    for (auto& action : validActions) {
         HRenderAction(action, pRenderTarget, COLOR_UNDEFINED);
     }
 
@@ -378,15 +409,35 @@ void TRenderLayers() {
     for (const auto& lo : sortedLayers) {
         int index = lo.layerIndex;
         if (index < 0 || index >= layers.size()) continue;
-        if (!layers[index].has_value()) continue;
-        if (layers[index].value().FrameIndex == CurrentFrameIndex && layers[index].value().isVisible) {
-            pRenderTarget->DrawBitmap(layers[index].value().pBitmap.Get());
+
+        auto currentLayer = std::find_if(
+            layers.begin(),
+            layers.end(),
+            [index](const std::optional<Layer>& optLayer) {
+                return optLayer.has_value() &&
+                    optLayer->LayerID == index &&
+                    optLayer->FrameIndex == CurrentFrameIndex;
+            }
+        );
+
+        if (currentLayer != layers.end() && currentLayer->has_value()) {
+            pRenderTarget->DrawBitmap(currentLayer->value().pBitmap.Get());
         }
 
-        if (isAnimationMode && CurrentFrameIndex > 0 && layers[index].value().isVisible && !isPlayingAnimation && !hideShadow) {
-            if (layers[index].value().FrameIndex == CurrentFrameIndex - 1) {
+        if (CurrentFrameIndex > 0) {
+            auto previousLayer = std::find_if(
+                layers.begin(),
+                layers.end(),
+                [index](const std::optional<Layer>& optLayer) {
+                    return optLayer.has_value() &&
+                        optLayer->LayerID == index &&
+                        optLayer->FrameIndex == CurrentFrameIndex - 1;
+                }
+            );
+        
+            if (previousLayer != layers.end() && previousLayer->has_value() && isAnimationMode && CurrentFrameIndex > 0 && previousLayer->value().isVisible && !isPlayingAnimation && !hideShadow) {
                 pRenderTarget->DrawBitmap(
-                    layers[index].value().pBitmap.Get(),
+                    previousLayer->value().pBitmap.Get(),
                     nullptr,                       // desenha em toda a área
                     0.2f,                          // 20% de opacidade
                     D2D1_BITMAP_INTERPOLATION_MODE_LINEAR

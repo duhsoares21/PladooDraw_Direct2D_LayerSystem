@@ -54,6 +54,7 @@ extern float logicalHeight;
 
 extern int g_scrollOffsetTimeline;
 extern int lastActiveReplayFrame;
+extern int replayPartialStepCount;
 
 extern bool hideShadow;
 
@@ -91,6 +92,7 @@ extern int isReplayMode;
 extern int isAnimationMode;
 extern bool isPlayingAnimation;
 
+extern bool isMovingAction;
 extern bool isDrawingRectangle;
 extern bool isDrawingEllipse;
 extern bool isDrawingBrush;
@@ -120,6 +122,8 @@ extern std::vector<ACTION> ReplayRedoActions;
 extern std::vector<VERTICE> Vertices;
 extern std::vector<std::pair<int, int>> pixelsToFill;
 
+extern ACTION Clipboard;
+
 extern int width, height;
 
 extern int btnWidth, btnHeight;
@@ -131,6 +135,8 @@ extern std::vector<std::optional<TimelineFrameButton>> TimelineFrameButtons;
 
 extern POINT mouseLastClickPosition;
 
+extern int actionId;
+extern int selectedActionId;
 extern int selectedIndex;
 extern bool selectedAction;
 

@@ -21,7 +21,32 @@ struct FLOATPOINT {
     float y;
 };
 
+struct LOCATION {
+    float x;
+	float y;
+};
+
+struct ROTATION {
+	float angle;
+	float centerX;
+	float centerY;
+};
+
+struct SCALE {
+    float x;
+    float y;
+};
+
+struct TRANSFORM {
+    LOCATION location;
+    ROTATION rotation;
+    SCALE scale;
+};
+
 struct ACTION {
+    int Id;
+    int TargetID;
+    bool LastMovedPosition = false;
     int Tool;
     int Layer;
     int FrameIndex;
@@ -40,13 +65,22 @@ struct ACTION {
     std::vector<FLOATPOINT> pixelsToFill;
     int PaintTarget;
 
+	TRANSFORM TransformProperties;
+
     std::wstring Text;
+    float TextWidth;
+    float TextHeight;
     std::wstring FontFamily;   // e.g. "Arial"
     int FontSize;              // in DIPs (or tenths of a point if you prefer)
     int FontWeight;            // map to DWRITE_FONT_WEIGHT
     bool FontItalic;
     bool FontUnderline;
     bool FontStrike;
+};
+
+struct DELTA {
+	float deltaX;
+	float deltaY;
 };
 
 struct Layer {
